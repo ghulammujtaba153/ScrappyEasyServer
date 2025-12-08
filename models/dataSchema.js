@@ -10,8 +10,8 @@ const dataSchema = new mongoose.Schema({
         required: true
     },
     data: {
-        type: Object,
-        required: true
+        type: [mongoose.Schema.Types.Mixed],
+        default: [],
     }
 }, {
     timestamps: true

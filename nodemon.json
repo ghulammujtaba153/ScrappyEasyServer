@@ -1,5 +1,8 @@
 {
     "ignore": [
-        "whatsapp-session/*"
+        "whatsapp-session/*",
+        "whatsapp-session/**",
+        "whatsapp_auth/*",
+        "whatsapp_auth/**"
     ]
 }

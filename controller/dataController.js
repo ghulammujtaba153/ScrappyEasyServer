@@ -6,7 +6,13 @@ export const createData = async (req, res) => {
             return res.status(400).json({ message: "Data is required" });
         }
 
-        const newData = await Data.create(req.body);
+        const payload = {
+            userId: req.body.userId,
+            searchString: req.body.searchString,
+            data: Array.isArray(req.body.data) ? req.body.data : []
+        };
+
+        const newData = await Data.create(payload);
 
         res.status(201).json({
             message: "Data saved successfully",
@@ -48,6 +54,71 @@ export const updateData = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 }
+
+export const appendDataEntries = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { entries } = req.body;
+
+        if (!Array.isArray(entries) || entries.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'entries array is required'
+            });
+        }
+
+        const record = await Data.findById(id);
+
+        if (!record) {
+            return res.status(404).json({
+                success: false,
+                message: 'Search record not found'
+            });
+        }
+
+        if (!Array.isArray(record.data)) {
+            record.data = [];
+        }
+
+        record.data.push(...entries);
+        await record.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Data appended successfully',
+            data: record
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+}
+
+export const getDataRecordById = async (req, res) => {
+    try {
+        const { recordId } = req.params;
+        const record = await Data.findById(recordId);
+
+        if (!record) {
+            return res.status(404).json({
+                success: false,
+                message: 'Record not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: record
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
 
 // Get all phone numbers with business details for WhatsApp integration
 export const getPhoneNumbers = async (req, res) => {
@@ -133,6 +204,38 @@ export const getPhoneNumbers = async (req, res) => {
             success: true,
             count: uniquePhones.length,
             data: uniquePhones
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+}
+
+
+export const getAllUniqueStrings = async (req, res) => {
+    const { userId } = req.params;
+    try {
+        const userData = await Data.find({ userId });
+        const uniqueMap = new Map();
+
+        userData.forEach(record => {
+            if (!record.searchString || uniqueMap.has(record.searchString)) return;
+
+            uniqueMap.set(record.searchString, {
+                id: record._id,
+                searchString: record.searchString,
+                count: Array.isArray(record.data) ? record.data.length : 0,
+                updatedAt: record.updatedAt
+            });
+        });
+
+        const uniqueStrings = Array.from(uniqueMap.values());
+        res.status(200).json({
+            success: true,
+            count: uniqueStrings.length,
+            data: uniqueStrings
         });
     } catch (error) {
         res.status(500).json({
