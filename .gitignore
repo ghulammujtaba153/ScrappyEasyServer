@@ -2,3 +2,7 @@
 
 .env
 node_modules
+# WhatsApp session data (contains sensitive auth credentials)
+whatsapp-session/
+whatsapp_auth/
+whatsapp_sessions/

@@ -1,5 +1,6 @@
 import express from 'express';
 import whatsappController from '../controller/whatsAppVerification.js';
+import authMiddleware from '../middleware/authMiddleware.js';
 
 const verificationRouter = express.Router();
 
@@ -42,10 +43,27 @@ const validatePhoneNumbers = (req, res, next) => {
     next();
 };
 
-// Check connection status
-verificationRouter.get('/status', (req, res) => {
+// Initialize WhatsApp session for user
+verificationRouter.post('/initialize', authMiddleware, async (req, res) => {
     try {
-        const status = whatsappController.getStatus();
+        await whatsappController.initializeForUser(req.userId);
+        
+        res.json({
+            success: true,
+            message: 'WhatsApp session initialization started. Please check /qr endpoint for QR code.'
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Check connection status
+verificationRouter.get('/status', authMiddleware, (req, res) => {
+    try {
+        const status = whatsappController.getStatus(req.userId);
 
         res.json({
             success: true,
@@ -60,9 +78,9 @@ verificationRouter.get('/status', (req, res) => {
 });
 
 // Get QR code for scanning
-verificationRouter.get('/qr', (req, res) => {
+verificationRouter.get('/qr', authMiddleware, (req, res) => {
     try {
-        const status = whatsappController.getStatus();
+        const status = whatsappController.getStatus(req.userId);
 
         if (status.hasQRCode) {
             res.json({
@@ -95,13 +113,13 @@ verificationRouter.get('/qr', (req, res) => {
 });
 
 // Check single number
-verificationRouter.post('/check', validatePhoneNumbers, async (req, res) => {
+verificationRouter.post('/check', authMiddleware, validatePhoneNumbers, async (req, res) => {
     try {
         const { phoneNumbers } = req.body
 
         // For single number check
         if (phoneNumbers.length === 1) {
-            const result = await whatsappController.checkSingleNumber(phoneNumbers[0]);
+            const result = await whatsappController.checkSingleNumber(req.userId, phoneNumbers[0]);
 
             res.json({
                 success: result.success,
@@ -110,7 +128,7 @@ verificationRouter.post('/check', validatePhoneNumbers, async (req, res) => {
             });
         } else {
             // For multiple numbers
-            const results = await whatsappController.checkMultipleNumbers(phoneNumbers);
+            const results = await whatsappController.checkMultipleNumbers(req.userId, phoneNumbers);
 
             const successResults = results.filter(r => r.success);
             const failedResults = results.filter(r => !r.success);
@@ -157,9 +175,9 @@ verificationRouter.post('/bulk-check', async (req, res) => {
 });
 
 // Disconnect WhatsApp
-verificationRouter.post('/disconnect', (req, res) => {
+verificationRouter.post('/disconnect', authMiddleware, (req, res) => {
     try {
-        whatsappController.disconnect();
+        whatsappController.disconnect(req.userId);
 
         res.json({
             success: true,
