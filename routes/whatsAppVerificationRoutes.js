@@ -4,7 +4,7 @@ import authMiddleware from '../middleware/authMiddleware.js';
 
 const verificationRouter = express.Router();
 
-// Middleware to validate phone numbers
+// Middleware to validate and filter phone numbers
 const validatePhoneNumbers = (req, res, next) => {
     const { phoneNumbers } = req.body;
 
@@ -22,23 +22,37 @@ const validatePhoneNumbers = (req, res, next) => {
         });
     }
 
-    // Validate each phone number format
+    // Filter out invalid phone numbers instead of rejecting entire request
+    const validNumbers = [];
+    const invalidNumbers = [];
+
     for (const number of phoneNumbers) {
         if (typeof number !== 'string' || !number.startsWith('+')) {
-            return res.status(400).json({
-                success: false,
-                error: `Invalid phone number format: ${number}. Must start with +`
-            });
+            invalidNumbers.push({ number, reason: 'Must start with +' });
+            continue;
         }
 
-        const digits = number.replace(/\D/g, '')
+        const digits = number.replace(/\D/g, '');
         if (digits.length < 10) {
-            return res.status(400).json({
-                success: false,
-                error: `Invalid phone number: ${number}. Must have at least 10 digits`
-            });
+            invalidNumbers.push({ number, reason: 'Must have at least 10 digits' });
+            continue;
         }
+
+        validNumbers.push(number);
     }
+
+    // If all numbers are invalid, return error
+    if (validNumbers.length === 0) {
+        return res.status(400).json({
+            success: false,
+            error: 'No valid phone numbers provided',
+            invalidNumbers
+        });
+    }
+
+    // Store valid numbers and invalid info for the route handler
+    req.validPhoneNumbers = validNumbers;
+    req.invalidPhoneNumbers = invalidNumbers;
 
     next();
 };
@@ -112,44 +126,48 @@ verificationRouter.get('/qr', authMiddleware, (req, res) => {
     }
 });
 
-// Check single number
+// Check numbers (batch verification)
 verificationRouter.post('/check', authMiddleware, validatePhoneNumbers, async (req, res) => {
     try {
-        const { phoneNumbers } = req.body
+        const { operationId } = req.body;
+        const validNumbers = req.validPhoneNumbers;
+        const invalidNumbers = req.invalidPhoneNumbers;
 
-        // For single number check
-        if (phoneNumbers.length === 1) {
-            const result = await whatsappController.checkSingleNumber(req.userId, phoneNumbers[0]);
+        // Always use batch method for efficiency with valid numbers only
+        const results = await whatsappController.checkMultipleNumbers(req.userId, validNumbers, operationId);
 
-            res.json({
-                success: result.success,
-                data: result.data || null,
-                error: result.error || null
-            });
-        } else {
-            // For multiple numbers
-            const results = await whatsappController.checkMultipleNumbers(req.userId, phoneNumbers);
+        // Add invalid numbers to results
+        const invalidResults = invalidNumbers.map(({ number, reason }) => ({
+            phoneNumber: number,
+            isRegistered: false,
+            whatsappId: null,
+            isBusiness: false,
+            success: false,
+            error: `Invalid format: ${reason}`
+        }));
 
-            const successResults = results.filter(r => r.success);
-            const failedResults = results.filter(r => !r.success);
+        const allResults = [...results.map(r => ({
+            phoneNumber: r.phoneNumber || r.data?.phoneNumber,
+            isRegistered: r.data?.isRegistered,
+            whatsappId: r.data?.whatsappId,
+            isBusiness: r.data?.isBusiness,
+            success: r.success,
+            error: r.error
+        })), ...invalidResults];
 
-            res.json({
-                success: true,
-                data: {
-                    total: results.length,
-                    successful: successResults.length,
-                    failed: failedResults.length,
-                    results: results.map(r => ({
-                        phoneNumber: r.phoneNumber || r.data?.phoneNumber,
-                        isRegistered: r.data?.isRegistered,
-                        whatsappId: r.data?.whatsappId,
-                        isBusiness: r.data?.isBusiness,
-                        success: r.success,
-                        error: r.error
-                    }))
-                }
-            });
-        }
+        const successResults = allResults.filter(r => r.success);
+        const failedResults = allResults.filter(r => !r.success);
+
+        res.json({
+            success: true,
+            data: {
+                total: allResults.length,
+                successful: successResults.length,
+                failed: failedResults.length,
+                invalidCount: invalidNumbers.length,
+                results: allResults
+            }
+        });
     } catch (error) {
         res.status(500).json({
             success: false,

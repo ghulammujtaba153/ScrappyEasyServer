@@ -2,6 +2,7 @@ import { makeWASocket, useMultiFileAuthState } from "@whiskeysockets/baileys";
 import qrcode from "qrcode-terminal";
 import path from "path";
 import fs from "fs";
+import Data from "../models/dataSchema.js";
 
 class WhatsAppController {
     constructor() {
@@ -92,10 +93,31 @@ class WhatsAppController {
                                 this.initializeForUser(userId).catch(console.error)
                             }
                         }, 2000)
+                    } else if (statusCode === 428) {
+                        // Keep-alive error - restart connection
+                        console.log(`Keep-alive error for user ${userId}, reconnecting...`)
+                        setTimeout(() => {
+                            if (this.clients.has(userId)) {
+                                this.initializeForUser(userId).catch(console.error)
+                            }
+                        }, 3000)
+                    } else if (statusCode === 440) {
+                        // Session replaced/conflict - another device logged in
+                        console.log(`Session conflict for user ${userId} - account connected elsewhere`)
+                        // Don't auto-reconnect to avoid loop - user needs to re-scan QR
+                        this.disconnect(userId)
                     } else if (statusCode === 401 || errorMessage.includes('Connection Failure')) {
                         // Bad credentials - clean up and require fresh QR
                         console.log(`Cleaning auth folder for user ${userId} due to connection error`)
                         this.disconnect(userId)
+                    } else if (statusCode === 500 || statusCode === 503) {
+                        // Server errors - retry after delay
+                        console.log(`Server error for user ${userId}, retrying...`)
+                        setTimeout(() => {
+                            if (this.clients.has(userId)) {
+                                this.initializeForUser(userId).catch(console.error)
+                            }
+                        }, 5000)
                     }
                     // For other errors, just stay disconnected - user can manually retry
                 }
@@ -154,7 +176,7 @@ class WhatsAppController {
         }
     }
 
-    async checkMultipleNumbers(userId, phoneNumbers) {
+    async checkMultipleNumbers(userId, phoneNumbers, operationId = null) {
         const session = this.getUserSession(userId)
         
         if (!session || !session.isConnected) {
@@ -162,21 +184,69 @@ class WhatsAppController {
         }
 
         const results = []
+        const verificationsToSave = {}
 
-        for (const number of phoneNumbers) {
-            try {
-                const result = await this.checkSingleNumber(userId, number)
-                results.push(result)
+        // Batch check using onWhatsApp API (more efficient)
+        try {
+            const cleanNumbers = phoneNumbers.map(num => num.replace(/\D/g, '') + '@s.whatsapp.net')
+            const batchResults = await session.client.onWhatsApp(...cleanNumbers)
 
-                // Delay to avoid rate limiting
-                await new Promise(resolve => setTimeout(resolve, 500))
+            for (let i = 0; i < phoneNumbers.length; i++) {
+                const phoneNumber = phoneNumbers[i]
+                const result = batchResults[i]
 
-            } catch (error) {
+                const verificationData = {
+                    phoneNumber,
+                    isRegistered: result?.exists || false,
+                    whatsappId: result?.jid || null,
+                    isBusiness: result?.isBusiness || false,
+                    verifiedAt: new Date().toISOString()
+                }
+
                 results.push({
-                    success: false,
-                    error: error.message,
-                    phoneNumber: number
+                    success: true,
+                    data: verificationData
                 })
+
+                // Store for DB update
+                verificationsToSave[phoneNumber] = verificationData
+            }
+
+            // Save to database if operationId provided
+            if (operationId && Object.keys(verificationsToSave).length > 0) {
+                try {
+                    const updateObj = {}
+                    for (const [phone, data] of Object.entries(verificationsToSave)) {
+                        updateObj[`whatsappVerifications.${phone}`] = data
+                    }
+
+                    await Data.findByIdAndUpdate(
+                        operationId,
+                        { $set: updateObj },
+                        { new: true }
+                    )
+
+                    console.log(`Saved ${Object.keys(verificationsToSave).length} verification results to DB`)
+                } catch (dbError) {
+                    console.error('Failed to save verification results to DB:', dbError)
+                }
+            }
+
+        } catch (error) {
+            console.error('Batch verification error:', error)
+            // Fallback to individual checks
+            for (const number of phoneNumbers) {
+                try {
+                    const result = await this.checkSingleNumber(userId, number)
+                    results.push(result)
+                    await new Promise(resolve => setTimeout(resolve, 500))
+                } catch (error) {
+                    results.push({
+                        success: false,
+                        error: error.message,
+                        phoneNumber: number
+                    })
+                }
             }
         }
 

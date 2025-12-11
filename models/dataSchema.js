@@ -12,6 +12,20 @@ const dataSchema = new mongoose.Schema({
     data: {
         type: [mongoose.Schema.Types.Mixed],
         default: [],
+    },
+    // Store WhatsApp verification results
+    // Structure: { "phoneNumber": { isRegistered: bool, whatsappId: string, isBusiness: bool, verifiedAt: date } }
+    whatsappVerifications: {
+        type: Map,
+        of: mongoose.Schema.Types.Mixed,
+        default: new Map()
+    },
+    // Store extracted city/location data
+    // Structure: { "index": "cityName" }
+    cityData: {
+        type: Map,
+        of: String,
+        default: new Map()
     }
 }, {
     timestamps: true

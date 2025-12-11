@@ -1,5 +1,6 @@
 import Data from "../models/dataSchema.js"
 
+
 export const createData = async (req, res) => {
     try {
         if (!req.body) {
@@ -26,16 +27,99 @@ export const createData = async (req, res) => {
 export const getData = async (req, res) => {
     try {
         if (req.params.id) {
-            // Get data by userId
-            const data = await Data.find({ userId: req.params.id });
-            res.status(200).json(data);
+            // Get data by userId with pagination
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 10;
+            const skip = (page - 1) * limit;
+
+            const total = await Data.countDocuments({ userId: req.params.id });
+            const data = await Data.find({ userId: req.params.id })
+                .skip(skip)
+                .limit(limit)
+                .sort({ updatedAt: -1 });
+
+            // Calculate unique cities with counts
+            const cityCounts = {};
+            data.forEach(record => {
+                if (record.cityData) {
+                    const cityDataMap = record.cityData instanceof Map ? 
+                        record.cityData : 
+                        new Map(Object.entries(record.cityData));
+                    
+                    cityDataMap.forEach((city) => {
+                        if (city && city !== 'Unknown' && city !== 'No URL' && city !== 'No Coordinates') {
+                            cityCounts[city] = (cityCounts[city] || 0) + 1;
+                        }
+                    });
+                }
+            });
+
+            // Format as "cityName (count)"
+            const uniqueCities = Object.entries(cityCounts)
+                .map(([city, count]) => `${city} (${count})`)
+                .sort();
+
+            res.status(200).json({
+                success: true,
+                data,
+                uniqueCities,
+                pagination: {
+                    total,
+                    page,
+                    limit,
+                    pages: Math.ceil(total / limit)
+                }
+            });
         } else {
-            // Get all data
-            const data = await Data.find();
-            res.status(200).json(data);
+            // Get all data with pagination
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 10;
+            const skip = (page - 1) * limit;
+
+            const total = await Data.countDocuments();
+            const data = await Data.find()
+                .skip(skip)
+                .limit(limit)
+                .sort({ updatedAt: -1 });
+
+            // Calculate unique cities with counts
+            const cityCounts = {};
+            data.forEach(record => {
+                if (record.cityData) {
+                    const cityDataMap = record.cityData instanceof Map ? 
+                        record.cityData : 
+                        new Map(Object.entries(record.cityData));
+                    
+                    cityDataMap.forEach((city) => {
+                        if (city && city !== 'Unknown' && city !== 'No URL' && city !== 'No Coordinates') {
+                            cityCounts[city] = (cityCounts[city] || 0) + 1;
+                        }
+                    });
+                }
+            });
+
+            // Format as "cityName (count)"
+            const uniqueCities = Object.entries(cityCounts)
+                .map(([city, count]) => `${city} (${count})`)
+                .sort();
+
+            res.status(200).json({
+                success: true,
+                data,
+                uniqueCities,
+                pagination: {
+                    total,
+                    page,
+                    limit,
+                    pages: Math.ceil(total / limit)
+                }
+            });
         }
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        res.status(500).json({ 
+            success: false,
+            message: error.message 
+        });
     }
 }
 
@@ -244,3 +328,46 @@ export const getAllUniqueStrings = async (req, res) => {
         });
     }
 }
+
+// Update city data from frontend
+export const updateCityData = async (req, res) => {
+    try {
+        const { recordId, cityData } = req.body;
+
+        if (!recordId || !cityData) {
+            return res.status(400).json({
+                success: false,
+                message: "Record ID and city data are required"
+            });
+        }
+
+        const record = await Data.findById(recordId);
+
+        if (!record) {
+            return res.status(404).json({
+                success: false,
+                message: "Record not found"
+            });
+        }
+
+        // Update cityData Map
+        const updatedCityData = record.cityData || new Map();
+        Object.entries(cityData).forEach(([index, city]) => {
+            updatedCityData.set(index, city);
+        });
+
+        record.cityData = updatedCityData;
+        await record.save();
+
+        res.json({
+            success: true,
+            message: "City data updated successfully"
+        });
+    } catch (error) {
+        console.error("Error updating city data:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
