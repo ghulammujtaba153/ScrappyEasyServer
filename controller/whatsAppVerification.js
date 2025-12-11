@@ -85,7 +85,15 @@ class WhatsAppController {
                     session.isConnected = false
                     
                     // Handle different disconnect scenarios
-                    if (statusCode === 515) {
+                    if (statusCode === 408) {
+                        // QR code expired - generate new one
+                        console.log(`QR code expired for user ${userId}, generating new QR...`)
+                        setTimeout(() => {
+                            if (this.clients.has(userId)) {
+                                this.initializeForUser(userId).catch(console.error)
+                            }
+                        }, 1000)
+                    } else if (statusCode === 515) {
                         // Stream error after successful pairing - restart connection
                         console.log(`Restarting connection for user ${userId} after pairing...`)
                         setTimeout(() => {
