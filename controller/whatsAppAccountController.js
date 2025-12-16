@@ -39,7 +39,7 @@ export const embeddedSignupCallback = async (req, res) => {
         params: {
           client_id: process.env.FB_APP_ID,
           client_secret: process.env.FB_APP_SECRET,
-          redirect_uri: process.env.FB_REDIRECT_URI,
+          // redirect_uri: process.env.FB_REDIRECT_URI,
           code
         }
       }
