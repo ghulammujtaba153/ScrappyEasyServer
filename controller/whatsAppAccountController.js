@@ -4,8 +4,7 @@ import WhatsAppAccount from "../models/whatsAppAccountSchema.js";
 
 /**
  * ============================================================
- * 1️⃣ Embedded Signup OAuth Callback
- * Meta redirects here after user completes Embedded Signup
+ * 1️⃣ Embedded Signup OAuth Callback (CORRECT)
  * ============================================================
  */
 export const embeddedSignupCallback = async (req, res) => {
@@ -18,12 +17,12 @@ export const embeddedSignupCallback = async (req, res) => {
       );
     }
 
-    // Decode user from state (JWT you created earlier)
+    // Decode SaaS user from state
     let userId;
     try {
       const decoded = jwt.verify(state, process.env.JWT_SECRET);
       userId = decoded.id;
-    } catch (err) {
+    } catch {
       return res.redirect(
         `${process.env.FRONTEND_URL}/dashboard/whatsapp-automation?error=invalid_state`
       );
@@ -31,7 +30,7 @@ export const embeddedSignupCallback = async (req, res) => {
 
     /**
      * ------------------------------------------------------------
-     * Exchange AUTH CODE → ACCESS TOKEN
+     * 1️⃣ Exchange AUTH CODE → SYSTEM USER TOKEN
      * ------------------------------------------------------------
      */
     const tokenResp = await axios.get(
@@ -46,75 +45,69 @@ export const embeddedSignupCallback = async (req, res) => {
       }
     );
 
-    const accessToken = tokenResp.data.access_token;
+    const systemUserToken = tokenResp.data.access_token;
 
     /**
      * ------------------------------------------------------------
-     * Get WhatsApp Business Accounts for this user
+     * 2️⃣ Fetch Embedded Signup Session Info (CRITICAL)
      * ------------------------------------------------------------
+     * This returns:
+     * - business_manager_id
+     * - waba_id
+     * - phone_number_id
      */
-    const wabaResp = await axios.get(
-      "https://graph.facebook.com/v20.0/me/whatsapp_business_accounts",
+    const sessionResp = await axios.get(
+      "https://graph.facebook.com/v20.0/me",
       {
         headers: {
-          Authorization: `Bearer ${accessToken}`
+          Authorization: `Bearer ${systemUserToken}`
+        },
+        params: {
+          fields: "id,whatsapp_business_accounts{ id,phone_numbers{ id,display_phone_number } }"
         }
       }
     );
 
-    if (!wabaResp.data.data || wabaResp.data.data.length === 0) {
-      throw new Error("No WhatsApp Business Account found");
+    const waba =
+      sessionResp.data.whatsapp_business_accounts?.data?.[0];
+
+    if (!waba) {
+      throw new Error("No WABA returned from Embedded Signup");
     }
 
-    const wabaId = wabaResp.data.data[0].id;
+    const phone = waba.phone_numbers?.data?.[0];
+
+    if (!phone) {
+      throw new Error("No phone number returned from Embedded Signup");
+    }
 
     /**
      * ------------------------------------------------------------
-     * Get Phone Numbers for WABA
-     * ------------------------------------------------------------
-     */
-    const phoneResp = await axios.get(
-      `https://graph.facebook.com/v20.0/${wabaId}/phone_numbers`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
-      }
-    );
-
-    if (!phoneResp.data.data || phoneResp.data.data.length === 0) {
-      throw new Error("No phone number found in WABA");
-    }
-
-    const phone = phoneResp.data.data[0];
-
-    /**
-     * ------------------------------------------------------------
-     * Store per-user WhatsApp connection (SaaS SAFE)
+     * 3️⃣ Store SaaS-SAFE WhatsApp connection
      * ------------------------------------------------------------
      */
     await WhatsAppAccount.findOneAndUpdate(
       { userId },
       {
         userId,
-        wabaId,
+        accessToken: systemUserToken,
+        tokenType: "system_user",
+        wabaId: waba.id,
         phoneNumberId: phone.id,
         displayPhoneNumber: phone.display_phone_number,
-        accessToken,
-        tokenType: "embedded_signup",
         connected: true,
         connectedAt: new Date()
       },
       { upsert: true, new: true }
     );
 
-    res.redirect(
+    return res.redirect(
       `${process.env.FRONTEND_URL}/dashboard/whatsapp-automation?connected=true`
     );
 
   } catch (err) {
     console.error("Embedded Signup Error:", err.response?.data || err.message);
-    res.redirect(
+    return res.redirect(
       `${process.env.FRONTEND_URL}/dashboard/whatsapp-automation?error=signup_failed`
     );
   }
@@ -122,7 +115,7 @@ export const embeddedSignupCallback = async (req, res) => {
 
 /**
  * ============================================================
- * 2️⃣ Get Connected WhatsApp Account (Frontend Status)
+ * 2️⃣ Get Connected Account (Frontend status)
  * ============================================================
  */
 export const getConnectedAccount = async (req, res) => {
@@ -133,7 +126,7 @@ export const getConnectedAccount = async (req, res) => {
       return res.json({ success: true, connected: false });
     }
 
-    res.json({
+    return res.json({
       success: true,
       connected: true,
       data: {
@@ -144,13 +137,16 @@ export const getConnectedAccount = async (req, res) => {
     });
 
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
   }
 };
 
 /**
  * ============================================================
- * 3️⃣ Send WhatsApp Template Message
+ * 3️⃣ Send WhatsApp Template Message (CORRECT)
  * ============================================================
  */
 export const sendMessage = async (req, res) => {
@@ -158,42 +154,48 @@ export const sendMessage = async (req, res) => {
     const { to, templateName } = req.body;
 
     if (!to) {
-      return res.status(400).json({ success: false, error: "Recipient required" });
+      return res.status(400).json({
+        success: false,
+        error: "Recipient required"
+      });
     }
 
     const account = await WhatsAppAccount.findOne({ userId: req.userId });
 
-    if (!account?.phoneNumberId || !account?.accessToken) {
+    if (!account?.accessToken || !account?.phoneNumberId) {
       return res.status(400).json({
         success: false,
         error: "WhatsApp not connected"
       });
     }
 
-    const url = `https://graph.facebook.com/v20.0/${account.phoneNumberId}/messages`;
-
-    const payload = {
-      messaging_product: "whatsapp",
-      to,
-      type: "template",
-      template: {
-        name: templateName || "hello_world",
-        language: { code: "en_US" }
+    const response = await axios.post(
+      `https://graph.facebook.com/v20.0/${account.phoneNumberId}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to,
+        type: "template",
+        template: {
+          name: templateName || "hello_world",
+          language: { code: "en_US" }
+        }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${account.accessToken}`,
+          "Content-Type": "application/json"
+        }
       }
-    };
+    );
 
-    const response = await axios.post(url, payload, {
-      headers: {
-        Authorization: `Bearer ${account.accessToken}`,
-        "Content-Type": "application/json"
-      }
+    return res.json({
+      success: true,
+      data: response.data
     });
-
-    res.json({ success: true, data: response.data });
 
   } catch (err) {
     console.error("Send Message Error:", err.response?.data || err.message);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: err.response?.data || err.message
     });
