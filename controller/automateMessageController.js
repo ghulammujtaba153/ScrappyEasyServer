@@ -1,5 +1,6 @@
-import AutomateMessageModel from "../models/AutomateMessageSchema.js";
+// import AutomateMessageModel from "../models/AutomateMessageSchema.js";
 import whatsappService from "../services/whatsapp.service.js";
+import AutomateMessageModel from "../models/automateMessageSchema.js";
 
 export const create = async (req, res) => {
     try {
