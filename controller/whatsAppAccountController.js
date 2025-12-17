@@ -33,17 +33,34 @@ export const embeddedSignupCallback = async (req, res) => {
      * 1️⃣ Exchange AUTH CODE → SYSTEM USER TOKEN
      * ------------------------------------------------------------
      */
-    const tokenResp = await axios.get(
+    // const tokenResp = await axios.get(
+    //   "https://graph.facebook.com/v20.0/oauth/access_token",
+    //   {
+    //     params: {
+    //       client_id: process.env.FB_APP_ID,
+    //       client_secret: process.env.FB_APP_SECRET,
+    //       // redirect_uri: process.env.FB_REDIRECT_URI,
+    //       code
+    //     }
+    //   }
+    // );
+
+    const tokenResp = await axios.post(
       "https://graph.facebook.com/v20.0/oauth/access_token",
+      null,
       {
         params: {
           client_id: process.env.FB_APP_ID,
           client_secret: process.env.FB_APP_SECRET,
-          // redirect_uri: process.env.FB_REDIRECT_URI,
-          code
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: "https://www.facebook.com/connect/login_success.html"
         }
       }
     );
+
+
+
 
     const systemUserToken = tokenResp.data.access_token;
 
