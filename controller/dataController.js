@@ -7,10 +7,14 @@ export const createData = async (req, res) => {
             return res.status(400).json({ message: "Data is required" });
         }
 
+        // Unique data based on title
+        const rawData = Array.isArray(req.body.data) ? req.body.data : [];
+        const uniqueData = Array.from(new Map(rawData.map(item => [item.title, item])).values());
+
         const payload = {
             userId: req.body.userId,
             searchString: req.body.searchString,
-            data: Array.isArray(req.body.data) ? req.body.data : []
+            data: uniqueData
         };
 
         const newData = await Data.create(payload);
@@ -42,10 +46,10 @@ export const getData = async (req, res) => {
             const cityCounts = {};
             data.forEach(record => {
                 if (record.cityData) {
-                    const cityDataMap = record.cityData instanceof Map ? 
-                        record.cityData : 
+                    const cityDataMap = record.cityData instanceof Map ?
+                        record.cityData :
                         new Map(Object.entries(record.cityData));
-                    
+
                     cityDataMap.forEach((city) => {
                         if (city && city !== 'Unknown' && city !== 'No URL' && city !== 'No Coordinates') {
                             cityCounts[city] = (cityCounts[city] || 0) + 1;
@@ -86,10 +90,10 @@ export const getData = async (req, res) => {
             const cityCounts = {};
             data.forEach(record => {
                 if (record.cityData) {
-                    const cityDataMap = record.cityData instanceof Map ? 
-                        record.cityData : 
+                    const cityDataMap = record.cityData instanceof Map ?
+                        record.cityData :
                         new Map(Object.entries(record.cityData));
-                    
+
                     cityDataMap.forEach((city) => {
                         if (city && city !== 'Unknown' && city !== 'No URL' && city !== 'No Coordinates') {
                             cityCounts[city] = (cityCounts[city] || 0) + 1;
@@ -116,9 +120,9 @@ export const getData = async (req, res) => {
             });
         }
     } catch (error) {
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: error.message 
+            message: error.message
         });
     }
 }
@@ -164,8 +168,22 @@ export const appendDataEntries = async (req, res) => {
             record.data = [];
         }
 
-        record.data.push(...entries);
-        await record.save();
+        // Create a Set of existing titles for unique check
+        const existingTitles = new Set(record.data.map(item => item.title));
+
+        // Filter entries to remove duplicates (both within new entries and against existing data)
+        const uniqueEntries = [];
+        entries.forEach(entry => {
+            if (entry.title && !existingTitles.has(entry.title)) {
+                existingTitles.add(entry.title);
+                uniqueEntries.push(entry);
+            }
+        });
+
+        if (uniqueEntries.length > 0) {
+            record.data.push(...uniqueEntries);
+            await record.save();
+        }
 
         res.status(200).json({
             success: true,

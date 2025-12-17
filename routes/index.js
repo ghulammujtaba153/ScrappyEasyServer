@@ -11,6 +11,9 @@ import automationRouter from "./automationRoutes.js";
 import whatsAppAccountRouter from "./whatsAppAccountRoutes.js";
 import packageRouter from "./packageRoutes.js";
 import subscriptionRouter from "./subscriptionRoutes.js";
+import wappRouter from "./whatsapp.routes.js";
+import wappMessageRouter from "./message.routes.js";
+import automateMessageRouter from "./automateMessageRoutes.js";
 
 const router = express.Router();
 
@@ -26,5 +29,8 @@ router.use("/automation", automationRouter);
 router.use("/whatsapp/account", whatsAppAccountRouter);
 router.use("/packages", packageRouter);
 router.use("/subscriptions", subscriptionRouter);
+router.use("/whatsapp", wappRouter);
+router.use("/message", wappMessageRouter);
+router.use("/automate", automateMessageRouter)
 
 export default router;
