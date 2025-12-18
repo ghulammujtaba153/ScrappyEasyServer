@@ -1,6 +1,7 @@
 {
   "type": "module",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "axios": "^1.13.2",
     "bcrypt": "^6.0.0",
@@ -18,7 +19,9 @@
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "sib-api-v3-sdk": "^8.5.0",
+    "twilio": "^5.10.7",
     "uuid": "^13.0.0",
-    "winston": "^3.19.0"
+    "winston": "^3.19.0",
+    "ws": "^8.18.3"
   }
 }
