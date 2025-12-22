@@ -22,6 +22,7 @@ export function setupMediaStream(server) {
             // Using the new Multimodal Live API endpoint
             const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
+            console.log("🔌 Connecting to Gemini at:", url.replace(apiKey, "***"));
             geminiWs = new WebSocket(url);
 
             geminiWs.on("open", () => {
@@ -61,6 +62,7 @@ IMPORTANT:
                         }
                     }
                 };
+                console.log("📤 Sending setup message to Gemini:", JSON.stringify(setupMessage, null, 2));
                 geminiWs.send(JSON.stringify(setupMessage));
 
                 // Send initial greeting to start the conversation
@@ -75,12 +77,14 @@ IMPORTANT:
                         turnComplete: true
                     }
                 };
+                console.log("📤 Sending initial greeting to Gemini");
                 geminiWs.send(JSON.stringify(initialGreeting));
             });
 
             geminiWs.on("message", (data) => {
                 try {
                     const response = JSON.parse(data.toString());
+                    console.log("📥 Gemini response:", JSON.stringify(response, null, 2));
 
                     // Handle Audio Response from Gemini
                     if (response.serverContent && response.serverContent.modelTurn) {
@@ -104,6 +108,7 @@ IMPORTANT:
                                 // A naive implementation sends the base64.
 
                                 const audioData = part.inlineData.data;
+                                console.log("🔊 Received audio from Gemini, length:", audioData.length);
                                 sendAudioToTwilio(audioData);
                             }
                         }
@@ -111,20 +116,22 @@ IMPORTANT:
 
                     // Handle Turn Complete (Signal to listening again)
                     if (response.serverContent && response.serverContent.turnComplete) {
-                        // Logic if needed
+                        console.log("✅ Gemini turn complete");
                     }
 
                 } catch (error) {
                     console.error("❌ Error parsing Gemini message:", error);
+                    console.error("Raw message:", data.toString());
                 }
             });
 
-            geminiWs.on("close", () => {
-                console.log("🤖 Gemini connection closed");
+            geminiWs.on("close", (code, reason) => {
+                console.log("🤖 Gemini connection closed. Code:", code, "Reason:", reason.toString());
             });
 
             geminiWs.on("error", (error) => {
-                console.error("❌ Gemini WebSocket error:", error);
+                console.error("❌ Gemini WebSocket error:", error.message);
+                console.error("Full error:", error);
             });
         };
 
