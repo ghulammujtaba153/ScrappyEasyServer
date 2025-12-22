@@ -1,10 +1,10 @@
-import WebSocket from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import dotenv from "dotenv";
 
 dotenv.config();
 
 export function setupMediaStream(server) {
-    const wss = new WebSocket.Server({ server, path: "/media-stream" });
+    const wss = new WebSocketServer({ server, path: "/media-stream" });
 
     wss.on("connection", (ws) => {
         console.log("🔗 Twilio Media Stream connected");
