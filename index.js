@@ -3,6 +3,8 @@ import cors from "cors";
 import connectDB from "./database/db.js";
 import dotenv from "dotenv";
 import router from "./routes/index.js";
+import { setupMediaStream } from "./utils/mediaStream.js";
+
 dotenv.config();
 
 const app = express();
@@ -11,6 +13,8 @@ app.use(express.json());
 
 
 connectDB();
+
+setupMediaStream(server);
 
 app.use("/api", router);
 
@@ -35,7 +39,8 @@ app.use((err, req, res, next) => {
 
 import whatsappService from "./services/whatsapp.service.js";
 
-app.listen(process.env.PORT, async () => {
+
+const server = app.listen(process.env.PORT, async () => {
     console.log(`Server running on port ${process.env.PORT}`);
 
     try {
@@ -50,3 +55,5 @@ app.listen(process.env.PORT, async () => {
         console.error("Failed to initialize default session:", error);
     }
 });
+
+setupMediaStream(server);

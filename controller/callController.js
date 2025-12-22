@@ -45,13 +45,13 @@ if (!SERVER_URL) {
 ======================= */
 export const startCall = async (req, res) => {
     try {
-        log("START CALL API HIT");
+        log("📞 START CALL API HIT");
         log("Request body:", req.body);
 
         const { phoneNumber } = req.body;
 
         if (!phoneNumber) {
-            log("ERROR: phoneNumber missing");
+            log("❌ ERROR: phoneNumber missing");
             return res.status(400).json({ message: "Phone number is required" });
         }
 
@@ -63,32 +63,52 @@ export const startCall = async (req, res) => {
             url: `${SERVER_URL}/api/call/voice`,
         });
 
-        log("Call created successfully. SID:", call.sid);
+        log("✅ Call created. SID:", call.sid);
 
-        // Initialize AI system prompt
+        /* =======================
+           SYSTEM PROMPT (CRITICAL)
+        ======================= */
         callHistories.set(call.sid, [
             {
                 role: "model",
                 parts: [
                     {
-                        text:
-                            "You are an AI assistant for Mative Inc. " +
-                            "Your goal is to schedule a meeting. " +
-                            "You must collect the user's Name and Email. " +
-                            "Be polite, professional, and concise. " +
-                            "ONLY return JSON when both Name and Email are collected. " +
-                            'JSON format: { "name": "", "email": "", "isComplete": true }',
-                    },
-                ],
-            },
+                        text: `
+You are a professional AI voice assistant calling on behalf of Mative Inc.
+
+GOAL:
+- Have a natural phone conversation.
+- Collect the user's FULL NAME and EMAIL ADDRESS.
+- Schedule a meeting once details are collected.
+
+CONVERSATION RULES:
+- Ask ONE question at a time.
+- Do NOT rush the user.
+- If the user gives partial information, ask a follow-up.
+- If the user asks a question, answer it politely first.
+- Never assume missing information.
+- Keep responses short and natural for a phone call.
+
+IMPORTANT OUTPUT RULES:
+- DO NOT output JSON unless BOTH name AND email are clearly confirmed.
+- When complete, output ONLY valid JSON (no extra text).
+- JSON format:
+  { "name": "User Full Name", "email": "user@email.com", "isComplete": true }
+
+If information is incomplete, continue the conversation normally.
+`
+                    }
+                ]
+            }
         ]);
 
         res.status(200).json({
             message: "Call started successfully",
             sid: call.sid,
         });
+
     } catch (error) {
-        log("ERROR in startCall:", error);
+        log("❌ ERROR in startCall:", error);
         res.status(500).json({
             message: "Failed to start call",
             error: error.message,
@@ -99,123 +119,31 @@ export const startCall = async (req, res) => {
 /* =======================
    VOICE WEBHOOK
 ======================= */
+/* =======================
+   VOICE WEBHOOK
+======================= */
 export const handleVoice = (req, res) => {
-    log("VOICE WEBHOOK HIT");
-    log("Voice request body:", req.body);
+    log("🎤 VOICE WEBHOOK HIT");
 
+    // Create TwiML response
     const twiml = new twilio.twiml.VoiceResponse();
 
-    twiml.say(
-        "Hello, this is Mative Inc. I would like to schedule a meeting with you. Who am I speaking with?"
-    );
-
-    twiml.gather({
-        input: "speech",
-        action: `${SERVER_URL}/api/call/gather`,
-        timeout: 5,
-        speechTimeout: "auto",
+    // The <Connect> verb connects the call to the WebSocket stream
+    const connect = twiml.connect();
+    connect.stream({
+        url: `wss://${SERVER_URL.replace(/^https?:\/\//, "")}/media-stream`
     });
 
     res.type("text/xml");
     res.send(twiml.toString());
 };
 
+
 /* =======================
-   GATHER WEBHOOK
+   GATHER WEBHOOK (DEPRECATED)
 ======================= */
-export const handleGather = async (req, res) => {
-    log("GATHER WEBHOOK HIT");
-    log("Gather request body:", req.body);
-
-    const { CallSid, SpeechResult, From } = req.body;
-    const twiml = new twilio.twiml.VoiceResponse();
-
-    try {
-        if (!SpeechResult) {
-            log("No speech detected");
-
-            twiml.say("I didn't catch that. Could you please repeat?");
-            twiml.gather({
-                input: "speech",
-                action: `${SERVER_URL}/api/call/gather`,
-                timeout: 5,
-            });
-
-            res.type("text/xml");
-            return res.send(twiml.toString());
-        }
-
-        log("User said:", SpeechResult);
-
-        let history = callHistories.get(CallSid) || [];
-        history.push({ role: "user", parts: [{ text: SpeechResult }] });
-
-        log("Sending message to Gemini");
-
-        const chat = model.startChat({ history });
-        const result = await chat.sendMessage(SpeechResult);
-        const responseText = result.response.text();
-
-        log("Gemini response:", responseText);
-
-        history.push({ role: "model", parts: [{ text: responseText }] });
-        callHistories.set(CallSid, history);
-
-        /* =======================
-           CHECK FOR JSON COMPLETION
-        ======================= */
-        if (responseText.trim().startsWith("{")) {
-            try {
-                const data = JSON.parse(responseText);
-                log("Parsed JSON:", data);
-
-                if (data.isComplete) {
-                    log("Meeting details complete. Saving to DB.");
-
-                    const meeting = new Meeting({
-                        name: data.name,
-                        email: data.email,
-                        phoneNumber: From || "Unknown",
-                    });
-
-                    await meeting.save();
-
-                    twiml.say(
-                        "Thank you. Your meeting details have been recorded. Have a great day!"
-                    );
-                    twiml.hangup();
-
-                    callHistories.delete(CallSid);
-
-                    res.type("text/xml");
-                    return res.send(twiml.toString());
-                }
-            } catch (err) {
-                log("JSON parse error:", err);
-            }
-        }
-
-        /* =======================
-           CONTINUE CONVERSATION
-        ======================= */
-        const cleanResponse = responseText.replace(/\{.*\}/s, "").trim();
-
-        twiml.say(cleanResponse || "Could you please clarify that?");
-        twiml.gather({
-            input: "speech",
-            action: `${SERVER_URL}/api/call/gather`,
-            timeout: 5,
-        });
-
-    } catch (error) {
-        log("ERROR in handleGather:", error);
-
-        twiml.say(
-            "Sorry, I am having trouble processing your request. Please try again later."
-        );
-        twiml.hangup();
-    }
-
-    res.type("text/xml");
-    res.send(twiml.toString());
+// handleGather is no longer needed for Media Stream implementation
+// but keeping a placeholder to avoid 404s if any old calls linger
+export const handleGather = (req, res) => {
+    res.status(200).send("");
 };
