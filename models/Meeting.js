@@ -13,6 +13,12 @@ const meetingSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+    companyName: {
+        type: String,
+    },
+    objective: {
+        type: String,
+    },
     date: {
         type: Date,
         default: Date.now,

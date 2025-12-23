@@ -6,7 +6,7 @@ import http from "http";
 import connectDB from "./database/db.js";
 import router from "./routes/index.js";
 import whatsappService from "./services/whatsapp.service.js";
-import { setupMediaStream } from "./utils/mediaStream.js";
+// import { setupMediaStream } from "./utils/mediaStream.js"; // Disabled: using text-based voice approach
 
 dotenv.config();
 
@@ -21,6 +21,7 @@ const server = http.createServer(app);
 ====================== */
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 /* ======================
    DATABASE
@@ -36,28 +37,30 @@ app.use("/api", router);
    404 HANDLER
 ====================== */
 app.use("/api", (req, res) => {
-    res.status(404).json({
-        success: false,
-        message: `Endpoint not found: ${req.method} ${req.originalUrl}`,
-    });
+   res.status(404).json({
+      success: false,
+      message: `Endpoint not found: ${req.method} ${req.originalUrl}`,
+   });
 });
 
 /* ======================
    GLOBAL ERROR HANDLER
 ====================== */
 app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(err.status || 500).json({
-        success: false,
-        message: err.message || "Internal Server Error",
-        error: process.env.NODE_ENV === "development" ? err : {},
-    });
+   console.error(err.stack);
+   res.status(err.status || 500).json({
+      success: false,
+      message: err.message || "Internal Server Error",
+      error: process.env.NODE_ENV === "development" ? err : {},
+   });
 });
 
 /* ======================
    MEDIA STREAMS (Twilio)
+   DISABLED: Switching to text-based voice approach
+   (Speech-to-Text → Gemini → Text-to-Speech)
 ====================== */
-setupMediaStream(server);
+// setupMediaStream(server);
 
 /* ======================
    START SERVER
@@ -65,18 +68,18 @@ setupMediaStream(server);
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, async () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+   console.log(`🚀 Server running on port ${PORT}`);
 
-    try {
-        console.log("📲 Initializing default WhatsApp session...");
-        const result = await whatsappService.initializeSession("default");
+   // try {
+   //     console.log("📲 Initializing default WhatsApp session...");
+   //     const result = await whatsappService.initializeSession("default");
 
-        if (result.success) {
-            console.log("✅ Default WhatsApp session initialized.");
-        } else {
-            console.error("❌ WhatsApp init failed:", result.message);
-        }
-    } catch (error) {
-        console.error("❌ WhatsApp initialization error:", error);
-    }
+   //     if (result.success) {
+   //         console.log("✅ Default WhatsApp session initialized.");
+   //     } else {
+   //         console.error("❌ WhatsApp init failed:", result.message);
+   //     }
+   // } catch (error) {
+   //     console.error("❌ WhatsApp initialization error:", error);
+   // }
 });

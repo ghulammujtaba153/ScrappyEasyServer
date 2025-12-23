@@ -1,196 +1,238 @@
+/* 
+  ⚠️ DEPRECATED ⚠️
+  This file and the WebSocket-based approach (Option 1) are no longer used.
+  The project has switched to Option 2 (Text-based Voice Call):
+  Twilio Speech-to-Text (<Gather>) → Gemini Text API → Twilio Text-to-Speech (<Say>)
+  
+  Please see server/controller/callController.js for the current implementation.
+*/
+
 import { WebSocketServer, WebSocket } from "ws";
 import dotenv from "dotenv";
+import { spawn } from "child_process";
 
 dotenv.config();
 
-export function setupMediaStream(server) {
-    const wss = new WebSocketServer({ server, path: "/media-stream" });
+/*
+  Twilio  -> μ-law 8kHz (base64)
+  Gemini  -> PCM Linear16 16kHz (base64)
 
-    wss.on("connection", (ws) => {
+  Audio-only Gemini Live implementation (NO text turns)
+*/
+
+const FFMPEG_PATH = "C:\\ffmpeg-8.0.1-full_build\\bin\\ffmpeg.exe";
+
+export function setupMediaStream(server) {
+    const wss = new WebSocketServer({
+        server,
+        path: "/media-stream",
+    });
+
+    wss.on("connection", (twilioWs) => {
         console.log("🔗 Twilio Media Stream connected");
 
-        // Reference to the active Gemini WebSocket
         let geminiWs = null;
-        let streamSid = null; // Twilio Stream SID
+        let streamSid = null;
 
-        /* =======================
-           CONNECT TO GEMINI
-        ======================= */
+        /* =========================
+           FFMPEG TRANSCODERS
+        ========================= */
+
+        // μ-law 8kHz → PCM16 16kHz (Twilio → Gemini)
+        const toGemini = spawn(FFMPEG_PATH, [
+            "-f", "mulaw",
+            "-ar", "8000",
+            "-ac", "1",
+            "-i", "pipe:0",
+            "-f", "s16le",
+            "-ar", "16000",
+            "-ac", "1",
+            "pipe:1",
+        ]);
+
+        // PCM16 16kHz → μ-law 8kHz (Gemini → Twilio)
+        const toTwilio = spawn(FFMPEG_PATH, [
+            "-f", "s16le",
+            "-ar", "16000",
+            "-ac", "1",
+            "-i", "pipe:0",
+            "-f", "mulaw",
+            "-ar", "8000",
+            "-ac", "1",
+            "pipe:1",
+        ]);
+
+        toGemini.on("error", (e) =>
+            console.error("❌ FFmpeg toGemini error:", e)
+        );
+        toTwilio.on("error", (e) =>
+            console.error("❌ FFmpeg toTwilio error:", e)
+        );
+
+        /* =========================
+           CONNECT TO GEMINI LIVE
+        ========================= */
         const connectToGemini = () => {
             const apiKey = process.env.GOOGLE_API_KEY;
-            const model = "gemini-2.0-flash-exp"; // or gemini-1.5-flash-latest depending on access
-            // Using the new Multimodal Live API endpoint
-            const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
+            const model = "gemini-2.5-flash-native-audio-preview-12-2025";
 
-            console.log("🔌 Connecting to Gemini at:", url.replace(apiKey, "***"));
+            const url =
+                "wss://generativelanguage.googleapis.com/ws/" +
+                "google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent" +
+                `?key=${apiKey}`;
+
             geminiWs = new WebSocket(url);
 
             geminiWs.on("open", () => {
-                console.log("🤖 Connected to Gemini API");
+                console.log("🤖 Gemini Live connected");
 
-                // Send Initial Setup Message with System Instruction
-                const setupMessage = {
+                /* ---------- SETUP ---------- */
+                geminiWs.send(JSON.stringify({
                     setup: {
                         model: `models/${model}`,
                         generationConfig: {
-                            responseModalities: ["AUDIO"], // We want the model to speak back
+                            responseModalities: ["AUDIO"],
                         },
                         systemInstruction: {
-                            parts: [
-                                {
-                                    text: `
-You are a professional AI voice assistant calling on behalf of Mative Inc.
-
-GOAL:
-- Have a natural phone conversation.
-- Collect the user's FULL NAME and EMAIL ADDRESS.
-- Schedule a meeting once details are collected.
-
-CONVERSATION RULES:
-- Ask ONE question at a time.
-- Do NOT rush the user.
-- Listen carefully to the user.
-- If the user gives partial information, ask a follow-up.
-
-IMPORTANT:
-- Keep your responses concise and conversational.
-- Do NOT use markdown in your speech.
-- Once you have the NAME and EMAIL, politely thank the user and say goodbye.
-                                    `
-                                }
-                            ]
+                            parts: [{
+                                text: `
+You are a professional AI phone assistant calling on behalf of Mative Inc.
+You should greet the user and explain that you are calling to schedule a meeting.
+Ask for the user's full name and email, one question at a time.
+Speak clearly and naturally.
+End the call politely after collecting both.
+`
+                            }]
                         }
                     }
-                };
-                console.log("📤 Sending setup message to Gemini:", JSON.stringify(setupMessage, null, 2));
-                geminiWs.send(JSON.stringify(setupMessage));
+                }));
 
-                // Send initial greeting to start the conversation
-                const initialGreeting = {
-                    clientContent: {
-                        turns: [
-                            {
-                                role: "user",
-                                parts: [{ text: "Start the conversation now by introducing yourself as Mative Inc assistant." }]
-                            }
-                        ],
-                        turnComplete: true
-                    }
-                };
-                console.log("📤 Sending initial greeting to Gemini");
-                geminiWs.send(JSON.stringify(initialGreeting));
+                /* ---------- PRIME AUDIO TURN ---------- */
+                sendSilenceToGemini(200);
+                sendEndOfTurn();
             });
 
-            geminiWs.on("message", (data) => {
+            /* =========================
+               GEMINI → TWILIO AUDIO
+            ========================= */
+            geminiWs.on("message", (msg) => {
                 try {
-                    const response = JSON.parse(data.toString());
-                    console.log("📥 Gemini response:", JSON.stringify(response, null, 2));
+                    const data = JSON.parse(msg.toString());
+                    const parts = data?.serverContent?.modelTurn?.parts || [];
 
-                    // Handle Audio Response from Gemini
-                    if (response.serverContent && response.serverContent.modelTurn) {
-                        const parts = response.serverContent.modelTurn.parts;
-                        for (const part of parts) {
-                            if (part.inlineData && part.inlineData.mimeType.startsWith("audio/")) {
-                                // Gemini sends raw PCM (Linear16 24kHz usually)
-                                // We need to verify format. Twilio expects 8kHz mulaw.
-                                // For simplicity in this demo, assuming we might need transcoding
-                                // BUT: Gemini Live API often supports different output formats or we assume standard handling.
-                                // NOTE: Detailed audio handling often requires a conversion step (PCM -> Mulaw).
-                                // However, let's start by forwarding the payload if compatible or simply logging.
-
-                                // Actually, standard Gemini output is PCM. Twilio needs Mulaw 8khz.
-                                // Simple relaying won't work perfectly without transcoding.
-                                // For this specific "implement it" request, I will implement the relay
-                                // and assume the user might need a transcoder in between if formats mismatch rigidly.
-                                // But to make it "work" as best as possible without external libs like ffmpeg here:
-                                // We send the payload as-is in the 'media' event, hoping for compatibility or noise.
-                                // *Correction*: Gemini output is PCM 24000Hz. Twilio is Mulaw 8000Hz.
-                                // A naive implementation sends the base64.
-
-                                const audioData = part.inlineData.data;
-                                console.log("🔊 Received audio from Gemini, length:", audioData.length);
-                                sendAudioToTwilio(audioData);
-                            }
+                    for (const part of parts) {
+                        if (part.inlineData?.data) {
+                            const pcm = Buffer.from(part.inlineData.data, "base64");
+                            toTwilio.stdin.write(pcm);
                         }
                     }
-
-                    // Handle Turn Complete (Signal to listening again)
-                    if (response.serverContent && response.serverContent.turnComplete) {
-                        console.log("✅ Gemini turn complete");
-                    }
-
-                } catch (error) {
-                    console.error("❌ Error parsing Gemini message:", error);
-                    console.error("Raw message:", data.toString());
+                } catch (err) {
+                    console.error("❌ Gemini parse error:", err);
                 }
             });
 
-            geminiWs.on("close", (code, reason) => {
-                console.log("🤖 Gemini connection closed. Code:", code, "Reason:", reason.toString());
+            geminiWs.on("close", () => {
+                console.log("🤖 Gemini closed");
             });
 
-            geminiWs.on("error", (error) => {
-                console.error("❌ Gemini WebSocket error:", error.message);
-                console.error("Full error:", error);
+            geminiWs.on("error", (err) => {
+                console.error("❌ Gemini WS error:", err);
             });
         };
 
-        const sendAudioToTwilio = (base64Audio) => {
-            if (!ws || ws.readyState !== WebSocket.OPEN || !streamSid) return;
+        /* =========================
+           AUDIO HELPERS
+        ========================= */
 
-            const message = {
+        const sendSilenceToGemini = (ms = 200) => {
+            const samples = Math.floor((16000 * ms) / 1000);
+            const buffer = Buffer.alloc(samples * 2); // PCM16 silence
+
+            geminiWs.send(JSON.stringify({
+                realtimeInput: {
+                    mediaChunks: [{
+                        mimeType: "audio/pcm",
+                        data: buffer.toString("base64"),
+                    }]
+                }
+            }));
+        };
+
+        const sendEndOfTurn = () => {
+            geminiWs.send(JSON.stringify({
+                realtimeInput: { endOfTurn: true }
+            }));
+        };
+
+        /* =========================
+           SEND AUDIO TO TWILIO
+        ========================= */
+        toTwilio.stdout.on("data", (chunk) => {
+            if (!streamSid || twilioWs.readyState !== WebSocket.OPEN) return;
+
+            twilioWs.send(JSON.stringify({
                 event: "media",
-                streamSid: streamSid,
+                streamSid,
                 media: {
-                    payload: base64Audio
+                    payload: chunk.toString("base64"),
+                },
+            }));
+        });
+
+        /* =========================
+           SEND AUDIO TO GEMINI
+        ========================= */
+        toGemini.stdout.on("data", (chunk) => {
+            if (!geminiWs || geminiWs.readyState !== WebSocket.OPEN) return;
+
+            geminiWs.send(JSON.stringify({
+                realtimeInput: {
+                    mediaChunks: [{
+                        mimeType: "audio/pcm",
+                        data: chunk.toString("base64"),
+                    }]
                 }
-            };
-            ws.send(JSON.stringify(message));
-        };
+            }));
+        });
 
-        /* =======================
-           HANDLE TWILIO MESSAGES
-        ======================= */
-        ws.on("message", (data) => {
-            const msg = JSON.parse(data.toString());
+        /* =========================
+           TWILIO EVENTS
+        ========================= */
+        twilioWs.on("message", (msg) => {
+            const data = JSON.parse(msg.toString());
 
-            switch (msg.event) {
-                case "start":
-                    console.log("📞 Twilio Stream Started:", msg.start.streamSid);
-                    streamSid = msg.start.streamSid;
-                    connectToGemini();
-                    break;
+            if (data.event === "start") {
+                streamSid = data.start.streamSid;
+                console.log("📞 Stream started:", streamSid);
+                connectToGemini();
+            }
 
-                case "media":
-                    // Audio from Twilio (User speaking) -> Send to Gemini
-                    if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
-                        const audioPayload = msg.media.payload; // base64 mulaw 8khz
+            if (data.event === "media") {
+                const mulaw = Buffer.from(data.media.payload, "base64");
+                toGemini.stdin.write(mulaw);
+            }
 
-                        // Gemini Realtime API expects specific wrapped format
-                        const audioMessage = {
-                            realtimeInput: {
-                                mediaChunks: [
-                                    {
-                                        mimeType: "audio/x-mulaw", // Or "audio/pcm" if converted
-                                        data: audioPayload
-                                    }
-                                ]
-                            }
-                        };
-                        geminiWs.send(JSON.stringify(audioMessage));
-                    }
-                    break;
-
-                case "stop":
-                    console.log("❌ Twilio Stream Stopped");
-                    if (geminiWs) geminiWs.close();
-                    break;
+            if (data.event === "stop") {
+                console.log("⏹️ Stream stopped");
+                geminiWs?.close();
             }
         });
 
-        ws.on("close", () => {
-            console.log("🔌 Twilio WebSocket closed");
-            if (geminiWs) geminiWs.close();
+        /* =========================
+           CLEANUP
+        ========================= */
+        twilioWs.on("close", () => {
+            console.log("🔌 Twilio WS closed");
+            geminiWs?.close();
+            toGemini.kill();
+            toTwilio.kill();
+        });
+
+        twilioWs.on("error", (err) => {
+            console.error("❌ Twilio WS error:", err);
+            geminiWs?.close();
+            toGemini.kill();
+            toTwilio.kill();
         });
     });
 }

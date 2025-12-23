@@ -15,6 +15,7 @@ import wappRouter from "./whatsapp.routes.js";
 import wappMessageRouter from "./message.routes.js";
 import automateMessageRouter from "./automateMessageRoutes.js";
 import callRouter from "./callRoutes.js";
+import coldCallRouter from "./coldCallRoutes.js";
 
 const router = express.Router();
 
@@ -34,5 +35,6 @@ router.use("/whatsapp", wappRouter);
 router.use("/message", wappMessageRouter);
 router.use("/automate", automateMessageRouter);
 router.use("/call", callRouter)
+router.use("/coldcall", coldCallRouter);
 
 export default router;
