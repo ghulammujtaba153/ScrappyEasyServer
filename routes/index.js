@@ -16,6 +16,8 @@ import wappMessageRouter from "./message.routes.js";
 import automateMessageRouter from "./automateMessageRoutes.js";
 import callRouter from "./callRoutes.js";
 import coldCallRouter from "./coldCallRoutes.js";
+import userRouter from "./userRoutes.js";
+import screenshotRouter from "./screenshotRoutes.js";
 
 const router = express.Router();
 
@@ -36,5 +38,7 @@ router.use("/message", wappMessageRouter);
 router.use("/automate", automateMessageRouter);
 router.use("/call", callRouter)
 router.use("/coldcall", coldCallRouter);
+router.use("/user", userRouter);
+router.use("/screenshot", screenshotRouter);
 
 export default router;

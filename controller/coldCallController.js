@@ -62,8 +62,41 @@ export const getColdCallById = async (req, res) => {
 export const updateColdCall = async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, numbers } = req.body;
+        const { name, numbers, leadId, status, newNumber } = req.body;
 
+        // Atomic update for single lead status (prevents overwriting recordingUrl)
+        if (leadId && status) {
+            const updatedColdCall = await ColdCall.findOneAndUpdate(
+                { _id: id, "numbers._id": leadId },
+                {
+                    $set: {
+                        "numbers.$.status": status,
+                        "numbers.$.lastCalled": new Date()
+                    }
+                },
+                { new: true }
+            );
+
+            if (!updatedColdCall) {
+                return res.status(404).json({ success: false, message: "Lead not found in campaign" });
+            }
+            return res.status(200).json({ success: true, data: updatedColdCall });
+        }
+
+        // Atomic Add Number (prevents overwriting)
+        if (newNumber) {
+            const updatedColdCall = await ColdCall.findByIdAndUpdate(
+                id,
+                { $push: { numbers: { number: newNumber, status: 'pending' } } },
+                { new: true }
+            );
+            if (!updatedColdCall) {
+                return res.status(404).json({ success: false, message: "Campaign not found" });
+            }
+            return res.status(200).json({ success: true, data: updatedColdCall });
+        }
+
+        // Full update (fallback/original behavior)
         const updateData = {};
         if (name) updateData.name = name;
         if (numbers) {

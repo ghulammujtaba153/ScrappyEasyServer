@@ -26,6 +26,13 @@ const dataSchema = new mongoose.Schema({
         type: Map,
         of: String,
         default: new Map()
+    },
+    // Store website screenshot URLs
+    // Structure: { "index": "screenshotUrl" }
+    screenshotData: {
+        type: Map,
+        of: String,
+        default: new Map()
     }
 }, {
     timestamps: true

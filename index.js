@@ -22,6 +22,14 @@ const server = http.createServer(app);
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use("/screenshots", express.static("public/screenshots"));
+
+import fs from 'fs';
+import path from 'path';
+const screenshotsDir = path.join(process.cwd(), 'public/screenshots');
+if (!fs.existsSync(screenshotsDir)) {
+   fs.mkdirSync(screenshotsDir, { recursive: true });
+}
 
 /* ======================
    DATABASE

@@ -1,4 +1,5 @@
 import Data from "../models/dataSchema.js"
+import mongoose from "mongoose";
 
 
 export const createData = async (req, res) => {
@@ -222,6 +223,49 @@ export const getDataRecordById = async (req, res) => {
     }
 };
 
+// Update screenshot data from frontend
+export const updateScreenshotData = async (req, res) => {
+    try {
+        const { recordId, screenshotData } = req.body;
+
+        if (!recordId || !screenshotData) {
+            return res.status(400).json({
+                success: false,
+                message: "Record ID and screenshot data are required"
+            });
+        }
+
+        const record = await Data.findById(recordId);
+
+        if (!record) {
+            return res.status(404).json({
+                success: false,
+                message: "Record not found"
+            });
+        }
+
+        // Update screenshotData Map
+        const updatedScreenshotData = record.screenshotData || new Map();
+        Object.entries(screenshotData).forEach(([index, url]) => {
+            updatedScreenshotData.set(index, url);
+        });
+
+        record.screenshotData = updatedScreenshotData;
+        await record.save();
+
+        res.json({
+            success: true,
+            message: "Screenshot data updated successfully"
+        });
+    } catch (error) {
+        console.error("Error updating screenshot data:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 // Get all phone numbers with business details for WhatsApp integration
 export const getPhoneNumbers = async (req, res) => {
     try {
@@ -318,26 +362,66 @@ export const getPhoneNumbers = async (req, res) => {
 
 export const getAllUniqueStrings = async (req, res) => {
     const { userId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || '';
+
     try {
-        const userData = await Data.find({ userId });
-        const uniqueMap = new Map();
+        const skip = (page - 1) * limit;
 
-        userData.forEach(record => {
-            if (!record.searchString || uniqueMap.has(record.searchString)) return;
+        // Cast userId to ObjectId for aggregation match
+        const userObjectId = new mongoose.Types.ObjectId(userId);
 
-            uniqueMap.set(record.searchString, {
-                id: record._id,
-                searchString: record.searchString,
-                count: Array.isArray(record.data) ? record.data.length : 0,
-                updatedAt: record.updatedAt
-            });
-        });
+        const pipeline = [
+            { $match: { userId: userObjectId, ...(search && { searchString: { $regex: search, $options: 'i' } }) } },
+            // Group by searchString to ensure uniqueness
+            {
+                $group: {
+                    _id: "$searchString",
+                    docId: { $first: "$_id" },
+                    searchString: { $first: "$searchString" },
+                    updatedAt: { $max: "$updatedAt" },
+                    dataConfig: { $push: "$data" } // Collect all 'data' arrays
+                }
+            },
+            // Reduce the data arrays to calculate total count
+            {
+                $project: {
+                    _id: 1,
+                    id: "$docId",
+                    searchString: 1,
+                    updatedAt: 1,
+                    count: {
+                        $reduce: {
+                            input: "$dataConfig",
+                            initialValue: 0,
+                            in: { $add: ["$$value", { $size: { $ifNull: ["$$this", []] } }] }
+                        }
+                    }
+                }
+            },
+            { $sort: { updatedAt: -1 } },
+            {
+                $facet: {
+                    metadata: [{ $count: "total" }, { $addFields: { page: page } }],
+                    data: [{ $skip: skip }, { $limit: limit }]
+                }
+            }
+        ];
 
-        const uniqueStrings = Array.from(uniqueMap.values());
+        const result = await Data.aggregate(pipeline);
+        const metadata = result[0].metadata[0] || { total: 0, page: 1 };
+        const data = result[0].data;
+
         res.status(200).json({
             success: true,
-            count: uniqueStrings.length,
-            data: uniqueStrings
+            data: data,
+            pagination: {
+                total: metadata.total,
+                page: page,
+                limit: limit,
+                pages: Math.ceil(metadata.total / limit)
+            }
         });
     } catch (error) {
         res.status(500).json({

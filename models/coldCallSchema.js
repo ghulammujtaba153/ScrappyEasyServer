@@ -23,6 +23,9 @@ const coldCallSchema = new mongoose.Schema({
             },
             lastCalled: {
                 type: Date
+            },
+            recordingUrl: {
+                type: String
             }
         }
     ],
