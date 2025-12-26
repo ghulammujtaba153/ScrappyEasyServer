@@ -1,5 +1,8 @@
 {
   "type": "module",
+  "scripts": {
+    "postinstall": "npx playwright install chromium"
+  },
   "dependencies": {
     "@google/genai": "^1.34.0",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
