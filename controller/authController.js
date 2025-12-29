@@ -66,7 +66,14 @@ export const verifyToken = async (req, res) => {
     }
 }
 
-
+export const getUserProfile = async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id).select("-password");
+        res.status(200).json({ user });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
 export const getAllUsers = async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;

@@ -18,6 +18,8 @@ import callRouter from "./callRoutes.js";
 import coldCallRouter from "./coldCallRoutes.js";
 import userRouter from "./userRoutes.js";
 import screenshotRouter from "./screenshotRoutes.js";
+import proxyRouter from "./proxyRoutes.js";
+import supportRouter from "./supportRoutes.js";
 
 const router = express.Router();
 
@@ -40,5 +42,7 @@ router.use("/call", callRouter)
 router.use("/coldcall", coldCallRouter);
 router.use("/user", userRouter);
 router.use("/screenshot", screenshotRouter);
+router.use("/proxy", proxyRouter);
+router.use("/support", supportRouter);
 
 export default router;
