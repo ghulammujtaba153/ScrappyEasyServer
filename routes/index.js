@@ -21,6 +21,7 @@ import screenshotRouter from "./screenshotRoutes.js";
 import proxyRouter from "./proxyRoutes.js";
 import supportRouter from "./supportRoutes.js";
 import stripeRouter from "./stripeRoutes.js";
+import locationRouter from "./locationRoutes.js";
 
 const router = express.Router();
 
@@ -46,5 +47,6 @@ router.use("/screenshot", screenshotRouter);
 router.use("/proxy", proxyRouter);
 router.use("/support", supportRouter);
 router.use("/stripe", stripeRouter);
+router.use("/location", locationRouter);
 
 export default router;
