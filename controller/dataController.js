@@ -473,3 +473,50 @@ export const updateCityData = async (req, res) => {
         });
     }
 };
+
+// Toggle favorite status for a data item
+export const toggleFavorite = async (req, res) => {
+    try {
+        const { recordId, itemIndex, favorite } = req.body;
+
+        if (!recordId || itemIndex === undefined) {
+            return res.status(400).json({
+                success: false,
+                message: "Record ID and item index are required"
+            });
+        }
+
+        const record = await Data.findById(recordId);
+
+        if (!record) {
+            return res.status(404).json({
+                success: false,
+                message: "Record not found"
+            });
+        }
+
+        if (!record.data || !record.data[itemIndex]) {
+            return res.status(404).json({
+                success: false,
+                message: "Data item not found at specified index"
+            });
+        }
+
+        // Toggle or set the favorite status
+        record.data[itemIndex].favorite = favorite !== undefined ? favorite : !record.data[itemIndex].favorite;
+        record.markModified('data');
+        await record.save();
+
+        res.json({
+            success: true,
+            message: favorite ? "Added to favorites" : "Removed from favorites",
+            favorite: record.data[itemIndex].favorite
+        });
+    } catch (error) {
+        console.error("Error toggling favorite:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};

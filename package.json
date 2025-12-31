@@ -23,6 +23,7 @@
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "sib-api-v3-sdk": "^8.5.0",
+    "socket.io": "^4.8.3",
     "stripe": "^20.1.0",
     "twilio": "^5.10.7",
     "uuid": "^13.0.0",

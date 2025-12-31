@@ -27,6 +27,16 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    gender: {
+        type: String,
+        enum: ['male', 'female', 'other'],
+    },
+    dob: {
+        type: Date,
+    },
+    areaOfInterest: {
+        type: String,
+    },
     status: {
         type: String,
         default: "active"

@@ -2,7 +2,7 @@ import twilio from "twilio";
 const { AccessToken } = twilio.jwt;
 const { VoiceGrant } = AccessToken;
 import dotenv from "dotenv";
-import Meeting from "../models/Meeting.js";
+// import Meeting from "../models/Meeting.js";
 import CallLog from "../models/CallLog.js";
 import ColdCall from "../models/coldCallSchema.js"; // Corrected import path
 
@@ -403,14 +403,14 @@ export const handleGatherResponse = async (req, res) => {
 
                 // Save to DB immediately (Name + Phone Number)
                 try {
-                    const meeting = new Meeting({
-                        name: state.name,
-                        email: "Not provided (Scripted Lead)",
-                        phoneNumber: state.phoneNumber || "Unknown",
-                        companyName: state.companyName,
-                        objective: state.objective,
-                    });
-                    await meeting.save();
+                    // const meeting = new Meeting({
+                    //     name: state.name,
+                    //     email: "Not provided (Scripted Lead)",
+                    //     phoneNumber: state.phoneNumber || "Unknown",
+                    //     companyName: state.companyName,
+                    //     objective: state.objective,
+                    // });
+                    // await meeting.save();
                     log("💾 Meeting lead saved to database successfully.");
 
                     twiml.say({ voice: "Polly.Joanna" },

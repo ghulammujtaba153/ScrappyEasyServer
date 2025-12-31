@@ -6,6 +6,7 @@ import http from "http";
 import connectDB from "./database/db.js";
 import router from "./routes/index.js";
 import whatsappService from "./services/whatsapp.service.js";
+import setupSocketIO from "./services/socket.service.js";
 // import { setupMediaStream } from "./utils/mediaStream.js"; // Disabled: using text-based voice approach
 
 dotenv.config();
@@ -35,6 +36,11 @@ if (!fs.existsSync(screenshotsDir)) {
    DATABASE
 ====================== */
 connectDB();
+
+/* ======================
+   SOCKET.IO SETUP
+====================== */
+const io = setupSocketIO(server);
 
 /* ======================
    ROUTES

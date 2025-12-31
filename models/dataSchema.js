@@ -34,6 +34,7 @@ const dataSchema = new mongoose.Schema({
         of: String,
         default: new Map()
     }
+    
 }, {
     timestamps: true
 })

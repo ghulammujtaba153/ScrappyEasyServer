@@ -22,6 +22,7 @@ import proxyRouter from "./proxyRoutes.js";
 import supportRouter from "./supportRoutes.js";
 import stripeRouter from "./stripeRoutes.js";
 import locationRouter from "./locationRoutes.js";
+import collaborationRouter from "./collaborationRoutes.js";
 
 const router = express.Router();
 
@@ -48,5 +49,6 @@ router.use("/proxy", proxyRouter);
 router.use("/support", supportRouter);
 router.use("/stripe", stripeRouter);
 router.use("/location", locationRouter);
+router.use("/collaboration", collaborationRouter);
 
 export default router;
