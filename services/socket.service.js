@@ -8,34 +8,62 @@ export const setupSocketIO = (server) => {
     const io = new Server(server, {
         cors: {
             origin: "*",
-            methods: ["GET", "POST"]
+            methods: ["GET", "POST"],
+            credentials: false
+        },
+        // IMPORTANT: Use polling first for Render and cloud platforms
+        transports: ["polling", "websocket"],
+        allowEIO3: true,
+        // Increase timeouts for cloud environments
+        pingTimeout: 60000,
+        pingInterval: 25000,
+        // Allow upgrades from polling to websocket
+        allowUpgrades: true,
+        // Disable cookies for better cross-origin compatibility
+        cookie: false,
+        // Connection state recovery
+        connectionStateRecovery: {
+            maxDisconnectionDuration: 2 * 60 * 1000,
+            skipMiddlewares: true
         }
     });
 
     io.on("connection", (socket) => {
         console.log(`🔌 Socket connected: ${socket.id}`);
+        console.log(`📊 Current online users count: ${onlineUsers.size}`);
 
         // User comes online
         socket.on("user_online", (userData) => {
             if (userData && userData.userId) {
+                // Check if user already exists with different socket
+                const existingUser = onlineUsers.get(userData.userId);
+                if (existingUser && existingUser.socketId !== socket.id) {
+                    console.log(`🔄 User ${userData.name} reconnected, updating socket ID`);
+                }
+                
                 onlineUsers.set(userData.userId, {
                     userId: userData.userId,
                     name: userData.name,
                     email: userData.email,
                     socketId: socket.id,
-                    connectedAt: new Date()
+                    connectedAt: existingUser?.connectedAt || new Date()
                 });
                 
                 console.log(`👤 User online: ${userData.name} (${userData.userId})`);
+                console.log(`📊 Total online users: ${onlineUsers.size}`);
                 
                 // Broadcast updated online users list to everyone
-                io.emit("online_users_updated", getOnlineUsersList());
+                const usersList = getOnlineUsersList();
+                console.log(`📡 Broadcasting online users:`, usersList.map(u => u.name));
+                io.emit("online_users_updated", usersList);
             }
         });
 
         // Get online users
         socket.on("get_online_users", () => {
-            socket.emit("online_users_list", getOnlineUsersList());
+            const usersList = getOnlineUsersList();
+            console.log(`📋 Sending online users list to ${socket.id}:`, usersList.map(u => u.name));
+            socket.emit("online_users_list", usersList);
         });
 
         // Send meeting request
@@ -197,3 +225,4 @@ const getOnlineUsersList = () => {
 };
 
 export default setupSocketIO;
+

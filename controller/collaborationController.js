@@ -1,4 +1,5 @@
 import Collaboration from "../models/collaborationSchema.js";
+import mongoose from "mongoose";
 
 export const createCollaboration = async (req, res) => {
     try {
@@ -14,11 +15,29 @@ export const createCollaboration = async (req, res) => {
 export const getCollaborationsByUser = async (req, res) => {
     try {
         const userId = req.params.userId;
-        const collaborations = await Collaboration.find({ participants: userId })
+        
+        // Convert string userId to ObjectId for proper matching in array
+        const userObjectId = new mongoose.Types.ObjectId(userId);
+        
+        // Find all collaborations where user is a participant
+        const collaborations = await Collaboration.find({ 
+            participants: { $in: [userObjectId] } 
+        })
             .sort({ createdAt: -1 })
             .populate('participants', 'name email');
-        res.status(200).json({ success: true, data: collaborations });
+        
+        // Add "sentByYou" flag - first participant is always the sender
+        const collaborationsWithDirection = collaborations.map(collab => {
+            const collabObj = collab.toObject();
+            const senderId = collab.participants[0]?._id?.toString() || collab.participants[0]?.toString();
+            collabObj.sentByYou = senderId === userId;
+            collabObj.direction = senderId === userId ? 'sent' : 'received';
+            return collabObj;
+        });
+        
+        res.status(200).json({ success: true, data: collaborationsWithDirection });
     } catch (error) {
+        console.error('Error fetching collaborations:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 }
