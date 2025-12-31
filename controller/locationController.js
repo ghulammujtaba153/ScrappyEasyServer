@@ -248,5 +248,87 @@ export const find_city_neighbors = async (req, res) => {
     }
 };
 
+/**
+ * Find nearby cities based on coordinates only
+ * This endpoint is optimized for finding recommendations near scraped data points
+ * 
+ * Query Parameters:
+ * - lat: Latitude (required)
+ * - lng: Longitude (required)
+ * - limit: Number of cities to return (default: 20)
+ * - radius: Maximum distance in km (default: 150)
+ * - minPopulation: Minimum population filter (optional)
+ */
+export const find_nearby_cities = async (req, res) => {
+    try {
+        const { lat, lng, limit = 20, radius = 150, minPopulation = 0 } = req.query;
+
+        if (!lat || !lng) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide lat and lng coordinates",
+            });
+        }
+
+        const targetLat = parseFloat(lat);
+        const targetLng = parseFloat(lng);
+
+        if (isNaN(targetLat) || isNaN(targetLng)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid latitude or longitude values",
+            });
+        }
+
+        // Find all cities within radius
+        const nearbyCities = citiesData
+            .filter(c => {
+                // Filter by minimum population if specified
+                if (minPopulation && (c.population || 0) < parseInt(minPopulation)) return false;
+                return true;
+            })
+            .map(c => {
+                const distance = haversineDistance(
+                    targetLat,
+                    targetLng,
+                    parseFloat(c.lat),
+                    parseFloat(c.lng)
+                );
+                return {
+                    city: c.city,
+                    city_ascii: c.city_ascii,
+                    lat: parseFloat(c.lat),
+                    lng: parseFloat(c.lng),
+                    country: c.country,
+                    iso2: c.iso2,
+                    iso3: c.iso3,
+                    admin_name: c.admin_name,
+                    capital: c.capital,
+                    population: c.population || 0,
+                    id: c.id,
+                    distance_km: Math.round(distance * 100) / 100,
+                };
+            })
+            .filter(c => c.distance_km <= parseFloat(radius) && c.distance_km > 0.5) // Exclude very close (likely same location)
+            .sort((a, b) => a.distance_km - b.distance_km)
+            .slice(0, parseInt(limit));
+
+        res.status(200).json({
+            success: true,
+            message: "Nearby cities retrieved successfully",
+            searchPoint: { lat: targetLat, lng: targetLng },
+            count: nearbyCities.length,
+            cities: nearbyCities,
+        });
+    } catch (error) {
+        console.error("Error in find_nearby_cities:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error",
+            error: error.message,
+        });
+    }
+};
+
 
 
