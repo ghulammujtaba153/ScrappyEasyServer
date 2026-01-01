@@ -1,5 +1,5 @@
 import express from "express";
-import { login, register, updateUser, verifyToken, resetPassword, inviteUser, getAllUsers, deleteUser, getUserProfile } from "../controller/authController.js";
+import { login, register, updateUser, verifyToken, resetPassword, inviteResetPassword, inviteUser, getAllUsers, deleteUser, getUserProfile } from "../controller/authController.js";
 
 
 const authRouter = express.Router();
@@ -11,6 +11,7 @@ authRouter.get("/verifyToken", verifyToken);
 authRouter.get("/profile/:id", getUserProfile);
 
 authRouter.post("/reset-password", resetPassword);
+authRouter.post("/invite-reset-password/:token", inviteResetPassword);
 authRouter.post("/invite-user", inviteUser);
 authRouter.get("/users", getAllUsers);
 authRouter.delete("/deleteUser/:id", deleteUser);

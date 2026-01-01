@@ -2,6 +2,39 @@ import Subscription from "../models/subscriptionSchema.js";
 import User from "../models/userSchema.js";
 import Package from "../models/packageSchema.js";
 
+export const getUserSubscription = async (req, res) => {
+    try {
+        const userId = req.params.id;
+        
+        const subscription = await Subscription.findOne({ 
+            user: userId,
+            status: 'Active'
+        })
+        .populate('package', 'name price interval features description')
+        .sort({ createdAt: -1 });
+
+        if (!subscription) {
+            return res.status(200).json({ subscription: null });
+        }
+
+        res.status(200).json({ 
+            subscription: {
+                id: subscription._id,
+                packageId: subscription.package?._id,
+                packageName: subscription.package?.name,
+                amount: subscription.amount,
+                status: subscription.status,
+                startDate: subscription.startDate,
+                endDate: subscription.endDate,
+                isOneTime: subscription.isOneTime,
+                package: subscription.package
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ message: "Error fetching user subscription", error: error.message });
+    }
+};
+
 export const getAllSubscriptions = async (req, res) => {
     try {
         const subscriptions = await Subscription.find()

@@ -7,6 +7,7 @@ import categoryRouter from "./categoryRoutes.js";
 import verificationRouter from "./whatsAppVerificationRoutes.js";
 import notesRouter from "./notesRoutes.js";
 import dashboardRouter from "./dashboardRoutes.js";
+import adminDashboardRouter from "./adminDashboardRoutes.js";
 import automationRouter from "./automationRoutes.js";
 import whatsAppAccountRouter from "./whatsAppAccountRoutes.js";
 import packageRouter from "./packageRoutes.js";
@@ -34,6 +35,7 @@ router.use("/category", categoryRouter);
 router.use("/verification", verificationRouter)
 router.use("/notes", notesRouter)
 router.use("/dashboard", dashboardRouter)
+router.use("/admin-dashboard", adminDashboardRouter)
 router.use("/automation", automationRouter);
 router.use("/whatsapp/account", whatsAppAccountRouter);
 router.use("/packages", packageRouter);

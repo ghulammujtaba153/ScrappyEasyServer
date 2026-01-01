@@ -17,12 +17,30 @@ const subscriptionSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['Active', 'Pending', 'Cancelled', 'Completed'],
+        enum: ['Active', 'Pending', 'Cancelled', 'Completed', 'Expired'],
         default: 'Pending'
     },
     startDate: {
         type: Date,
         default: Date.now
+    },
+    endDate: {
+        type: Date
+    },
+    stripeSessionId: {
+        type: String,
+        unique: true,
+        sparse: true
+    },
+    stripeCustomerId: {
+        type: String
+    },
+    stripeSubscriptionId: {
+        type: String
+    },
+    isOneTime: {
+        type: Boolean,
+        default: false
     }
 }, { timestamps: true });
 
