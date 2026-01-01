@@ -144,6 +144,26 @@ export const updateData = async (req, res) => {
     }
 }
 
+export const deleteData = async (req, res) => {
+    try {
+        const data = await Data.findByIdAndDelete(req.params.id);
+        
+        if (!data) {
+            return res.status(404).json({
+                success: false,
+                message: "Record not found"
+            });
+        }
+        
+        res.status(200).json({
+            success: true,
+            message: "Data deleted successfully"
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
 export const appendDataEntries = async (req, res) => {
     try {
         const { id } = req.params;
