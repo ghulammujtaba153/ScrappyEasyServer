@@ -405,3 +405,171 @@ export const getAdminDashboardData = async (req, res) => {
         res.status(500).json({ message: "Error fetching dashboard data", error: error.message });
     }
 };
+
+// Get individual user details and stats
+export const getUserDetailsStats = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { period = 'monthly' } = req.query;
+        
+        // Get user basic info
+        const user = await User.findById(userId).select('-password');
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        let months = 6;
+        if (period === 'weekly') months = 2;
+        else if (period === 'yearly') months = 12;
+
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+        // User's subscription stats
+        const totalSubscriptions = await Subscription.countDocuments({ user: userId });
+        const activeSubscription = await Subscription.findOne({ user: userId, status: 'Active' })
+            .populate('package', 'name price interval features');
+        
+        // Total amount spent by user
+        const totalSpentResult = await Subscription.aggregate([
+            { $match: { user: user._id } },
+            { $group: { _id: null, total: { $sum: "$amount" } } }
+        ]);
+        const totalSpent = totalSpentResult[0]?.total || 0;
+
+        // User's scraping/search stats
+        const totalSearches = await Data.countDocuments({ userId: userId });
+        const searchesThisMonth = await Data.countDocuments({ 
+            userId: userId, 
+            createdAt: { $gte: startOfMonth } 
+        });
+
+        // Total records scraped by user
+        const totalRecordsResult = await Data.aggregate([
+            { $match: { userId: user._id } },
+            { $project: { recordCount: { $size: "$data" } } },
+            { $group: { _id: null, total: { $sum: "$recordCount" } } }
+        ]);
+        const totalRecords = totalRecordsResult[0]?.total || 0;
+
+        // Subscription history
+        const subscriptionHistory = await Subscription.find({ user: userId })
+            .populate('package', 'name price interval')
+            .sort({ createdAt: -1 })
+            .limit(10);
+
+        // Monthly spending chart data
+        const spendingData = [];
+        for (let i = months - 1; i >= 0; i--) {
+            const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+            const monthName = startDate.toLocaleString('default', { month: 'short' });
+
+            const monthSpent = await Subscription.aggregate([
+                { $match: { user: user._id, createdAt: { $gte: startDate, $lte: endDate } } },
+                { $group: { _id: null, total: { $sum: "$amount" } } }
+            ]);
+
+            spendingData.push({
+                name: monthName,
+                amount: monthSpent[0]?.total || 0
+            });
+        }
+
+        // Monthly search activity chart data
+        const searchActivityData = [];
+        for (let i = months - 1; i >= 0; i--) {
+            const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+            const monthName = startDate.toLocaleString('default', { month: 'short' });
+
+            const searches = await Data.countDocuments({ 
+                userId: userId, 
+                createdAt: { $gte: startDate, $lte: endDate } 
+            });
+
+            const recordsResult = await Data.aggregate([
+                { $match: { userId: user._id, createdAt: { $gte: startDate, $lte: endDate } } },
+                { $project: { recordCount: { $size: "$data" } } },
+                { $group: { _id: null, total: { $sum: "$recordCount" } } }
+            ]);
+
+            searchActivityData.push({
+                name: monthName,
+                searches: searches,
+                records: recordsResult[0]?.total || 0
+            });
+        }
+
+        // Recent searches
+        const recentSearches = await Data.find({ userId: userId })
+            .select('searchString createdAt data')
+            .sort({ createdAt: -1 })
+            .limit(5);
+
+        const recentSearchesFormatted = recentSearches.map(search => ({
+            _id: search._id,
+            searchString: search.searchString,
+            recordCount: search.data?.length || 0,
+            createdAt: search.createdAt
+        }));
+
+        // Subscription status distribution (for pie chart)
+        const subscriptionStatusDist = await Subscription.aggregate([
+            { $match: { user: user._id } },
+            { $group: { _id: "$status", count: { $sum: 1 } } }
+        ]);
+
+        const statusColors = {
+            'Active': '#10B981',
+            'Pending': '#F59E0B',
+            'Cancelled': '#EF4444',
+            'Completed': '#3B82F6',
+            'Expired': '#6B7280'
+        };
+
+        const subscriptionDistribution = subscriptionStatusDist.map(item => ({
+            name: item._id,
+            value: item.count,
+            color: statusColors[item._id] || '#8B5CF6'
+        }));
+
+        res.status(200).json({
+            user: {
+                _id: user._id,
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                country: user.country,
+                city: user.city,
+                address: user.address,
+                role: user.role,
+                status: user.status,
+                gender: user.gender,
+                dob: user.dob,
+                areaOfInterest: user.areaOfInterest,
+                createdAt: user.createdAt
+            },
+            stats: {
+                totalSubscriptions,
+                totalSpent,
+                totalSearches,
+                searchesThisMonth,
+                totalRecords,
+                hasActiveSubscription: !!activeSubscription
+            },
+            activeSubscription,
+            subscriptionHistory,
+            recentSearches: recentSearchesFormatted,
+            chartData: {
+                spending: spendingData,
+                searchActivity: searchActivityData,
+                subscriptionDistribution
+            }
+        });
+    } catch (error) {
+        console.error("Error fetching user details:", error);
+        res.status(500).json({ message: "Error fetching user details", error: error.message });
+    }
+};

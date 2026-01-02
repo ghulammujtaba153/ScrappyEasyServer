@@ -5,7 +5,8 @@ import {
     getUserGrowthData,
     getRevenueData,
     getSubscriptionDistribution,
-    getUserActivityData
+    getUserActivityData,
+    getUserDetailsStats
 } from "../controller/adminDashboardController.js";
 
 const router = express.Router();
@@ -19,5 +20,8 @@ router.get("/user-growth", getUserGrowthData);
 router.get("/revenue", getRevenueData);
 router.get("/subscriptions", getSubscriptionDistribution);
 router.get("/activity", getUserActivityData);
+
+// User details endpoint
+router.get("/user/:userId", getUserDetailsStats);
 
 export default router;
