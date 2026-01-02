@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 
+// Operation/Scrape - references LeadData for actual lead records
 const dataSchema = new mongoose.Schema({
     userId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -9,31 +10,17 @@ const dataSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    // References to LeadData documents
+    leads: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "LeadData"
+    }],
+    // Legacy: raw data for backward compatibility
     data: {
         type: [mongoose.Schema.Types.Mixed],
         default: [],
     },
-    // Store WhatsApp verification results
-    // Structure: { "phoneNumber": { isRegistered: bool, whatsappId: string, isBusiness: bool, verifiedAt: date } }
-    whatsappVerifications: {
-        type: Map,
-        of: mongoose.Schema.Types.Mixed,
-        default: new Map()
-    },
-    // Store extracted city/location data
-    // Structure: { "index": "cityName" }
-    cityData: {
-        type: Map,
-        of: String,
-        default: new Map()
-    },
-    // Store website screenshot URLs
-    // Structure: { "index": "screenshotUrl" }
-    screenshotData: {
-        type: Map,
-        of: String,
-        default: new Map()
-    }
+    
     
 }, {
     timestamps: true

@@ -1,13 +1,37 @@
 // import AutomateMessageModel from "../models/AutomateMessageSchema.js";
 import whatsappService from "../services/whatsapp.service.js";
 import AutomateMessageModel from "../models/automateMessageSchema.js";
+import QualifiedLeads from "../models/qualifiedLeadsSchema.js";
 
 export const create = async (req, res) => {
     try {
-        const { name, message, numbers, userId } = req.body;
+        const { name, message, numbers, userId, qualifiedLeadsId } = req.body;
 
-        // Transform simplified number array (if strings) to object structure
-        const formattedNumbers = numbers.map(num => {
+        // If creating from qualified leads
+        if (qualifiedLeadsId) {
+            const automateMessage = await AutomateMessageModel.create({
+                name,
+                message,
+                userId,
+                qualifiedLeadsId,
+                numbers: [] // Use qualified leads entries instead
+            });
+            
+            // Populate and return
+            const populated = await AutomateMessageModel.findById(automateMessage._id)
+                .populate({
+                    path: 'qualifiedLeadsId',
+                    populate: {
+                        path: 'entries.leadId',
+                        model: 'LeadData'
+                    }
+                });
+            
+            return res.status(201).json(populated);
+        }
+
+        // Legacy: Transform simplified number array (if strings) to object structure
+        const formattedNumbers = (numbers || []).map(num => {
             if (typeof num === 'string') {
                 return { number: num, status: 'pending' };
             }
@@ -29,7 +53,15 @@ export const create = async (req, res) => {
 
 export const getAllAutomateMessages = async (req, res) => {
     try {
-        const automateMessages = await AutomateMessageModel.find({ userId: req.params.userId }).sort({ createdAt: -1 });
+        const automateMessages = await AutomateMessageModel.find({ userId: req.params.userId })
+            .populate({
+                path: 'qualifiedLeadsId',
+                populate: {
+                    path: 'entries.leadId',
+                    model: 'LeadData'
+                }
+            })
+            .sort({ createdAt: -1 });
         res.status(200).json(automateMessages);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -42,7 +74,13 @@ export const update = async (req, res) => {
             req.params.id,
             req.body,
             { new: true }
-        );
+        ).populate({
+            path: 'qualifiedLeadsId',
+            populate: {
+                path: 'entries.leadId',
+                model: 'LeadData'
+            }
+        });
         res.status(200).json(automateMessage);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -65,7 +103,15 @@ export const sendBatch = async (req, res) => {
     try {
         const { listId, batchSize = 10, sessionId = 'default' } = req.body;
 
-        const list = await AutomateMessageModel.findById(listId);
+        const list = await AutomateMessageModel.findById(listId)
+            .populate({
+                path: 'qualifiedLeadsId',
+                populate: {
+                    path: 'entries.leadId',
+                    model: 'LeadData'
+                }
+            });
+            
         if (!list) {
             return res.status(404).json({ error: 'List not found' });
         }
@@ -74,8 +120,13 @@ export const sendBatch = async (req, res) => {
             return res.status(400).json({ error: 'No message content defined for this list' });
         }
 
-        // Find pending numbers
-        // We need to use index of the array to update specific items
+        // Check if using qualified leads or legacy numbers
+        if (list.qualifiedLeadsId && list.qualifiedLeadsId.entries?.length > 0) {
+            // Use qualified leads entries
+            return await sendBatchFromQualifiedLeads(list, batchSize, sessionId, res);
+        }
+
+        // Legacy: Find pending numbers from numbers array
         const pendingIndices = list.numbers
             .map((item, index) => ({ ...item.toObject(), originalIndex: index }))
             .filter(item => item.status === 'pending')
@@ -85,36 +136,22 @@ export const sendBatch = async (req, res) => {
             return res.json({ success: true, message: 'No pending numbers to send', processed: 0 });
         }
 
-        const uniquePending = pendingIndices;
-        console.log(`Sending batch of ${uniquePending.length} messages...`);
-
         const results = [];
         let successCount = 0;
         let failedCount = 0;
 
-        for (const item of uniquePending) {
+        for (const item of pendingIndices) {
             try {
-                // Send message via WhatsApp Service
-                // Note: sendText(sessionId, to, text)
-                // 'to' needs to be formatted as JID usually, but service might handle it.
-                // Assuming service handles standard phone numbers or we append @s.whatsapp.net
-                // Let's assume input is just phone, service usually expects JID.
-                // We'll try to use the raw number and let service handle or format it.
-                // check service implementation
                 const jid = item.number.includes('@') ? item.number : `${item.number.replace(/\D/g, '')}@s.whatsapp.net`;
-
                 await whatsappService.sendMessage(sessionId, jid, { text: list.message });
 
-                // Update status in memory (will save later)
                 list.numbers[item.originalIndex].status = 'sent';
                 list.numbers[item.originalIndex].sentAt = new Date();
                 list.numbers[item.originalIndex].error = undefined;
                 successCount++;
                 results.push({ number: item.number, status: 'sent' });
 
-                // Random delay between 1-3 seconds to respect rate limits
                 await new Promise(r => setTimeout(r, Math.random() * 2000 + 1000));
-
             } catch (error) {
                 console.error(`Failed to send to ${item.number}:`, error);
                 list.numbers[item.originalIndex].status = 'failed';
@@ -124,7 +161,6 @@ export const sendBatch = async (req, res) => {
             }
         }
 
-        // Save entire document
         await list.save();
 
         res.json({
@@ -139,4 +175,85 @@ export const sendBatch = async (req, res) => {
         console.error('Batch send error:', error);
         res.status(500).json({ error: error.message });
     }
+}
+
+// Helper function to send batch from qualified leads
+async function sendBatchFromQualifiedLeads(list, batchSize, sessionId, res) {
+    const qualifiedLeads = list.qualifiedLeadsId;
+    
+    // Find entries with not-sent or failed message status that have phone numbers
+    const pendingEntries = qualifiedLeads.entries
+        .map((entry, index) => ({ entry, index }))
+        .filter(({ entry }) => {
+            const hasPhone = entry.leadId?.phone;
+            const isPending = entry.messageStatus === 'not-sent' || entry.messageStatus === 'pending';
+            return hasPhone && isPending;
+        })
+        .slice(0, batchSize);
+
+    if (pendingEntries.length === 0) {
+        return res.json({ success: true, message: 'No pending entries to send', processed: 0 });
+    }
+
+    const results = [];
+    let successCount = 0;
+    let failedCount = 0;
+
+    // Get the qualified leads document to update
+    const qualifiedLeadsDoc = await QualifiedLeads.findById(qualifiedLeads._id);
+
+    for (const { entry, index } of pendingEntries) {
+        const phone = entry.leadId.phone;
+        const businessName = entry.leadId.title || 'Customer';
+        
+        try {
+            const jid = phone.includes('@') ? phone : `${phone.replace(/\D/g, '')}@s.whatsapp.net`;
+            
+            // Personalize message if needed
+            const personalizedMessage = list.message.replace(/\{name\}/gi, businessName);
+            
+            await whatsappService.sendMessage(sessionId, jid, { text: personalizedMessage });
+
+            // Update entry status in qualified leads
+            qualifiedLeadsDoc.entries[index].messageStatus = 'sent';
+            qualifiedLeadsDoc.entries[index].lastMessagedAt = new Date();
+            qualifiedLeadsDoc.entries[index].messageAttempts = (qualifiedLeadsDoc.entries[index].messageAttempts || 0) + 1;
+            
+            successCount++;
+            results.push({ 
+                phone, 
+                businessName, 
+                status: 'sent',
+                entryId: entry._id
+            });
+
+            await new Promise(r => setTimeout(r, Math.random() * 2000 + 1000));
+        } catch (error) {
+            console.error(`Failed to send to ${phone}:`, error);
+            
+            qualifiedLeadsDoc.entries[index].messageStatus = 'failed';
+            qualifiedLeadsDoc.entries[index].messageNotes = error.message;
+            qualifiedLeadsDoc.entries[index].messageAttempts = (qualifiedLeadsDoc.entries[index].messageAttempts || 0) + 1;
+            
+            failedCount++;
+            results.push({ 
+                phone, 
+                businessName, 
+                status: 'failed', 
+                error: error.message,
+                entryId: entry._id
+            });
+        }
+    }
+
+    // Save qualified leads with updated statuses
+    await qualifiedLeadsDoc.save();
+
+    res.json({
+        success: true,
+        processed: results.length,
+        successCount,
+        failedCount,
+        results
+    });
 }

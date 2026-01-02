@@ -1,4 +1,5 @@
 import Data from "../models/dataSchema.js"
+import LeadData from "../models/leadDataSchema.js"
 import mongoose from "mongoose";
 
 
@@ -7,22 +8,46 @@ export const createData = async (req, res) => {
         if (!req.body) {
             return res.status(400).json({ message: "Data is required" });
         }
+        console.log("Received data:", req.body);
+
+        const { userId, searchString, data: rawData } = req.body;
 
         // Unique data based on title
-        const rawData = Array.isArray(req.body.data) ? req.body.data : [];
-        const uniqueData = Array.from(new Map(rawData.map(item => [item.title, item])).values());
+        const dataArray = Array.isArray(rawData) ? rawData : [];
+        const uniqueData = Array.from(new Map(dataArray.map(item => [item.title, item])).values());
 
-        const payload = {
-            userId: req.body.userId,
-            searchString: req.body.searchString,
-            data: uniqueData
-        };
+        // Create the operation record first
+        const newOperation = await Data.create({
+            userId,
+            searchString,
+            leads: [],
+            data: uniqueData // Keep legacy data for backward compatibility
+        });
 
-        const newData = await Data.create(payload);
+        // Create LeadData documents for each unique entry
+        const leadDocs = await Promise.all(uniqueData.map(item => 
+            LeadData.create({
+                userId,
+                operationId: newOperation._id,
+                title: item.title || '',
+                rating: item.rating || '',
+                reviews: item.reviews || '',
+                phone: item.phone || '',
+                address: item.address || '',
+                city: item.city || '',
+                website: item.website || '',
+                googleMapsLink: item.googleMapsLink || '',
+                metadata: item
+            })
+        ));
+
+        // Update operation with lead references
+        newOperation.leads = leadDocs.map(doc => doc._id);
+        await newOperation.save();
 
         res.status(201).json({
             message: "Data saved successfully",
-            data: newData
+            data: newOperation
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -37,22 +62,28 @@ export const getData = async (req, res) => {
             const limit = parseInt(req.query.limit) || 10;
             const skip = (page - 1) * limit;
 
-            const total = await Data.countDocuments({ userId: req.params.id });
-            const data = await Data.find({ userId: req.params.id })
+            // Cast userId to ObjectId for proper matching
+            let userIdQuery;
+            try {
+                userIdQuery = new mongoose.Types.ObjectId(req.params.id);
+            } catch (e) {
+                userIdQuery = req.params.id;
+            }
+
+            const total = await Data.countDocuments({ userId: userIdQuery });
+            const data = await Data.find({ userId: userIdQuery })
+                .populate('leads')
                 .skip(skip)
                 .limit(limit)
                 .sort({ updatedAt: -1 });
 
-            // Calculate unique cities with counts
+            // Calculate unique cities with counts from LeadData
             const cityCounts = {};
             data.forEach(record => {
-                if (record.cityData) {
-                    const cityDataMap = record.cityData instanceof Map ?
-                        record.cityData :
-                        new Map(Object.entries(record.cityData));
-
-                    cityDataMap.forEach((city) => {
-                        if (city && city !== 'Unknown' && city !== 'No URL' && city !== 'No Coordinates') {
+                if (record.leads && record.leads.length > 0) {
+                    record.leads.forEach(lead => {
+                        const city = lead.city;
+                        if (city && city !== 'Unknown' && city !== 'No URL' && city !== 'No Coordinates' && city !== '') {
                             cityCounts[city] = (cityCounts[city] || 0) + 1;
                         }
                     });
@@ -83,20 +114,18 @@ export const getData = async (req, res) => {
 
             const total = await Data.countDocuments();
             const data = await Data.find()
+                .populate('leads')
                 .skip(skip)
                 .limit(limit)
                 .sort({ updatedAt: -1 });
 
-            // Calculate unique cities with counts
+            // Calculate unique cities with counts from LeadData
             const cityCounts = {};
             data.forEach(record => {
-                if (record.cityData) {
-                    const cityDataMap = record.cityData instanceof Map ?
-                        record.cityData :
-                        new Map(Object.entries(record.cityData));
-
-                    cityDataMap.forEach((city) => {
-                        if (city && city !== 'Unknown' && city !== 'No URL' && city !== 'No Coordinates') {
+                if (record.leads && record.leads.length > 0) {
+                    record.leads.forEach(lead => {
+                        const city = lead.city;
+                        if (city && city !== 'Unknown' && city !== 'No URL' && city !== 'No Coordinates' && city !== '') {
                             cityCounts[city] = (cityCounts[city] || 0) + 1;
                         }
                     });
@@ -146,7 +175,7 @@ export const updateData = async (req, res) => {
 
 export const deleteData = async (req, res) => {
     try {
-        const data = await Data.findByIdAndDelete(req.params.id);
+        const data = await Data.findById(req.params.id);
         
         if (!data) {
             return res.status(404).json({
@@ -154,6 +183,14 @@ export const deleteData = async (req, res) => {
                 message: "Record not found"
             });
         }
+
+        // Delete all associated LeadData documents
+        if (data.leads && data.leads.length > 0) {
+            await LeadData.deleteMany({ _id: { $in: data.leads } });
+        }
+
+        // Delete the operation record
+        await Data.findByIdAndDelete(req.params.id);
         
         res.status(200).json({
             success: true,
@@ -176,7 +213,7 @@ export const appendDataEntries = async (req, res) => {
             });
         }
 
-        const record = await Data.findById(id);
+        const record = await Data.findById(id).populate('leads');
 
         if (!record) {
             return res.status(404).json({
@@ -185,31 +222,51 @@ export const appendDataEntries = async (req, res) => {
             });
         }
 
-        if (!Array.isArray(record.data)) {
-            record.data = [];
-        }
+        // Get existing titles from LeadData
+        const existingTitles = new Set(record.leads.map(lead => lead.title));
 
-        // Create a Set of existing titles for unique check
-        const existingTitles = new Set(record.data.map(item => item.title));
-
-        // Filter entries to remove duplicates (both within new entries and against existing data)
-        const uniqueEntries = [];
-        entries.forEach(entry => {
-            if (entry.title && !existingTitles.has(entry.title)) {
-                existingTitles.add(entry.title);
-                uniqueEntries.push(entry);
-            }
-        });
+        // Filter entries to remove duplicates
+        const uniqueEntries = entries.filter(entry => 
+            entry.title && !existingTitles.has(entry.title)
+        );
 
         if (uniqueEntries.length > 0) {
+            // Create new LeadData documents
+            const newLeads = await Promise.all(uniqueEntries.map(item =>
+                LeadData.create({
+                    userId: record.userId,
+                    operationId: record._id,
+                    title: item.title || '',
+                    rating: item.rating || '',
+                    reviews: item.reviews || '',
+                    phone: item.phone || '',
+                    address: item.address || '',
+                    city: item.city || '',
+                    website: item.website || '',
+                    googleMapsLink: item.googleMapsLink || '',
+                    metadata: item
+                })
+            ));
+
+            // Add new lead references to operation
+            record.leads.push(...newLeads.map(lead => lead._id));
+            
+            // Also update legacy data array
+            if (!Array.isArray(record.data)) {
+                record.data = [];
+            }
             record.data.push(...uniqueEntries);
+            
             await record.save();
         }
+
+        // Fetch updated record with populated leads
+        const updatedRecord = await Data.findById(id).populate('leads');
 
         res.status(200).json({
             success: true,
             message: 'Data appended successfully',
-            data: record
+            data: updatedRecord
         });
     } catch (error) {
         res.status(500).json({
@@ -222,7 +279,7 @@ export const appendDataEntries = async (req, res) => {
 export const getDataRecordById = async (req, res) => {
     try {
         const { recordId } = req.params;
-        const record = await Data.findById(recordId);
+        const record = await Data.findById(recordId).populate('leads');
 
         if (!record) {
             return res.status(404).json({
@@ -243,7 +300,7 @@ export const getDataRecordById = async (req, res) => {
     }
 };
 
-// Update screenshot data from frontend
+// Update screenshot URL for a lead
 export const updateScreenshotData = async (req, res) => {
     try {
         const { recordId, screenshotData } = req.body;
@@ -255,7 +312,7 @@ export const updateScreenshotData = async (req, res) => {
             });
         }
 
-        const record = await Data.findById(recordId);
+        const record = await Data.findById(recordId).populate('leads');
 
         if (!record) {
             return res.status(404).json({
@@ -264,14 +321,19 @@ export const updateScreenshotData = async (req, res) => {
             });
         }
 
-        // Update screenshotData Map
-        const updatedScreenshotData = record.screenshotData || new Map();
-        Object.entries(screenshotData).forEach(([index, url]) => {
-            updatedScreenshotData.set(index, url);
+        // Update screenshotUrl on LeadData documents
+        const updatePromises = Object.entries(screenshotData).map(async ([index, url]) => {
+            const leadIndex = parseInt(index);
+            if (record.leads[leadIndex]) {
+                return LeadData.findByIdAndUpdate(
+                    record.leads[leadIndex]._id,
+                    { screenshotUrl: url },
+                    { new: true }
+                );
+            }
         });
 
-        record.screenshotData = updatedScreenshotData;
-        await record.save();
+        await Promise.all(updatePromises);
 
         res.json({
             success: true,
@@ -292,74 +354,72 @@ export const getPhoneNumbers = async (req, res) => {
         const { userId } = req.params;
         const { categories, countries, states, cities } = req.query;
 
-        // Get all data for the user
-        const userData = await Data.find({ userId });
+        // Get all LeadData for the user
+        const leads = await LeadData.find({ userId }).populate('operationId', 'searchString createdAt');
 
-        // Flatten all business data
-        const allPhones = [];
+        // Filter and map leads
+        const allPhones = leads
+            .filter(lead => {
+                if (!lead.phone) return false;
 
-        userData.forEach(record => {
-            if (record.data && Array.isArray(record.data)) {
-                record.data.forEach(item => {
-                    if (item.phone) {
-                        // Apply filters if provided
-                        let includeItem = true;
+                let includeItem = true;
+                const searchString = lead.operationId?.searchString || '';
+                const address = lead.address || '';
 
-                        // Category filter (match with searchString)
-                        if (categories) {
-                            const categoryArray = categories.split(',');
-                            includeItem = categoryArray.some(cat =>
-                                record.searchString?.toLowerCase().includes(cat.toLowerCase())
-                            );
-                        }
+                // Category filter
+                if (categories) {
+                    const categoryArray = categories.split(',');
+                    includeItem = categoryArray.some(cat =>
+                        searchString.toLowerCase().includes(cat.toLowerCase())
+                    );
+                }
 
-                        // Country filter
-                        if (includeItem && countries) {
-                            const countryArray = countries.split(',');
-                            includeItem = countryArray.some(country => {
-                                const lowerCountry = country.toLowerCase();
-                                return record.searchString?.toLowerCase().includes(lowerCountry) ||
-                                    item.address?.toLowerCase().includes(lowerCountry);
-                            });
-                        }
+                // Country filter
+                if (includeItem && countries) {
+                    const countryArray = countries.split(',');
+                    includeItem = countryArray.some(country => {
+                        const lowerCountry = country.toLowerCase();
+                        return searchString.toLowerCase().includes(lowerCountry) ||
+                            address.toLowerCase().includes(lowerCountry);
+                    });
+                }
 
-                        // State filter
-                        if (includeItem && states) {
-                            const stateArray = states.split(',');
-                            includeItem = stateArray.some(state => {
-                                const lowerState = state.toLowerCase();
-                                return record.searchString?.toLowerCase().includes(lowerState) ||
-                                    item.address?.toLowerCase().includes(lowerState);
-                            });
-                        }
+                // State filter
+                if (includeItem && states) {
+                    const stateArray = states.split(',');
+                    includeItem = stateArray.some(state => {
+                        const lowerState = state.toLowerCase();
+                        return searchString.toLowerCase().includes(lowerState) ||
+                            address.toLowerCase().includes(lowerState);
+                    });
+                }
 
-                        // City filter
-                        if (includeItem && cities) {
-                            const cityArray = cities.split(',');
-                            includeItem = cityArray.some(city => {
-                                const lowerCity = city.toLowerCase();
-                                return record.searchString?.toLowerCase().includes(lowerCity) ||
-                                    item.address?.toLowerCase().includes(lowerCity);
-                            });
-                        }
+                // City filter
+                if (includeItem && cities) {
+                    const cityArray = cities.split(',');
+                    includeItem = cityArray.some(city => {
+                        const lowerCity = city.toLowerCase();
+                        return searchString.toLowerCase().includes(lowerCity) ||
+                            address.toLowerCase().includes(lowerCity) ||
+                            (lead.city && lead.city.toLowerCase().includes(lowerCity));
+                    });
+                }
 
-                        if (includeItem) {
-                            allPhones.push({
-                                phone: item.phone,
-                                businessName: item.title || 'Unknown',
-                                address: item.address || '',
-                                rating: item.rating || '',
-                                reviews: item.reviews || '',
-                                website: item.website || '',
-                                googleMapsLink: item.googleMapsLink || '',
-                                searchQuery: record.searchString || '',
-                                scrapedDate: record.createdAt
-                            });
-                        }
-                    }
-                });
-            }
-        });
+                return includeItem;
+            })
+            .map(lead => ({
+                phone: lead.phone,
+                businessName: lead.title || 'Unknown',
+                address: lead.address || '',
+                city: lead.city || '',
+                rating: lead.rating || '',
+                reviews: lead.reviews || '',
+                website: lead.website || '',
+                googleMapsLink: lead.googleMapsLink || '',
+                searchQuery: lead.operationId?.searchString || '',
+                scrapedDate: lead.createdAt,
+                leadId: lead._id
+            }));
 
         // Remove duplicates based on phone number
         const uniquePhones = Array.from(
@@ -401,23 +461,53 @@ export const getAllUniqueStrings = async (req, res) => {
                     docId: { $first: "$_id" },
                     searchString: { $first: "$searchString" },
                     updatedAt: { $max: "$updatedAt" },
-                    dataConfig: { $push: "$data" } // Collect all 'data' arrays
+                    leadsConfig: { $push: "$leads" }, // Collect all 'leads' arrays (normalized)
+                    dataConfig: { $push: "$data" } // Collect all 'data' arrays (legacy)
                 }
             },
-            // Reduce the data arrays to calculate total count
+            // Calculate count from leads (primary) or data (fallback)
             {
                 $project: {
                     _id: 1,
                     id: "$docId",
                     searchString: 1,
                     updatedAt: 1,
-                    count: {
+                    leadsCount: {
+                        $reduce: {
+                            input: "$leadsConfig",
+                            initialValue: 0,
+                            in: { $add: ["$$value", { $size: { $ifNull: ["$$this", []] } }] }
+                        }
+                    },
+                    dataCount: {
                         $reduce: {
                             input: "$dataConfig",
                             initialValue: 0,
                             in: { $add: ["$$value", { $size: { $ifNull: ["$$this", []] } }] }
                         }
                     }
+                }
+            },
+            // Use the larger count (leads preferred, data as fallback)
+            {
+                $addFields: {
+                    count: {
+                        $cond: {
+                            if: { $gt: ["$leadsCount", 0] },
+                            then: "$leadsCount",
+                            else: "$dataCount"
+                        }
+                    }
+                }
+            },
+            // Remove intermediate fields
+            {
+                $project: {
+                    _id: 1,
+                    id: 1,
+                    searchString: 1,
+                    updatedAt: 1,
+                    count: 1
                 }
             },
             { $sort: { updatedAt: -1 } },
@@ -451,7 +541,7 @@ export const getAllUniqueStrings = async (req, res) => {
     }
 }
 
-// Update city data from frontend
+// Update city data for a lead
 export const updateCityData = async (req, res) => {
     try {
         const { recordId, cityData } = req.body;
@@ -463,7 +553,7 @@ export const updateCityData = async (req, res) => {
             });
         }
 
-        const record = await Data.findById(recordId);
+        const record = await Data.findById(recordId).populate('leads');
 
         if (!record) {
             return res.status(404).json({
@@ -472,14 +562,19 @@ export const updateCityData = async (req, res) => {
             });
         }
 
-        // Update cityData Map
-        const updatedCityData = record.cityData || new Map();
-        Object.entries(cityData).forEach(([index, city]) => {
-            updatedCityData.set(index, city);
+        // Update city on LeadData documents
+        const updatePromises = Object.entries(cityData).map(async ([index, city]) => {
+            const leadIndex = parseInt(index);
+            if (record.leads[leadIndex]) {
+                return LeadData.findByIdAndUpdate(
+                    record.leads[leadIndex]._id,
+                    { city },
+                    { new: true }
+                );
+            }
         });
 
-        record.cityData = updatedCityData;
-        await record.save();
+        await Promise.all(updatePromises);
 
         res.json({
             success: true,
@@ -494,46 +589,140 @@ export const updateCityData = async (req, res) => {
     }
 };
 
-// Toggle favorite status for a data item
+// Toggle favorite status for a lead
 export const toggleFavorite = async (req, res) => {
     try {
-        const { recordId, itemIndex, favorite } = req.body;
+        const { recordId, leadId, itemIndex, favorite } = req.body;
 
-        if (!recordId || itemIndex === undefined) {
+        // Support both leadId and itemIndex
+        let targetLeadId = leadId;
+
+        if (!targetLeadId && recordId !== undefined && itemIndex !== undefined) {
+            const record = await Data.findById(recordId).populate('leads');
+
+            if (!record) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Record not found"
+                });
+            }
+
+            if (!record.leads || !record.leads[itemIndex]) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Lead not found at specified index"
+                });
+            }
+
+            targetLeadId = record.leads[itemIndex]._id;
+        }
+
+        if (!targetLeadId) {
             return res.status(400).json({
                 success: false,
-                message: "Record ID and item index are required"
+                message: "Lead ID or Record ID with item index is required"
             });
         }
 
-        const record = await Data.findById(recordId);
-
-        if (!record) {
+        // Update favorite status on LeadData
+        const lead = await LeadData.findById(targetLeadId);
+        
+        if (!lead) {
             return res.status(404).json({
                 success: false,
-                message: "Record not found"
+                message: "Lead not found"
             });
         }
 
-        if (!record.data || !record.data[itemIndex]) {
-            return res.status(404).json({
-                success: false,
-                message: "Data item not found at specified index"
-            });
-        }
-
-        // Toggle or set the favorite status
-        record.data[itemIndex].favorite = favorite !== undefined ? favorite : !record.data[itemIndex].favorite;
-        record.markModified('data');
-        await record.save();
+        lead.favorite = favorite !== undefined ? favorite : !lead.favorite;
+        await lead.save();
 
         res.json({
             success: true,
-            message: favorite ? "Added to favorites" : "Removed from favorites",
-            favorite: record.data[itemIndex].favorite
+            message: lead.favorite ? "Added to favorites" : "Removed from favorites",
+            favorite: lead.favorite
         });
     } catch (error) {
         console.error("Error toggling favorite:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// Update WhatsApp status for a lead
+export const updateWhatsAppStatus = async (req, res) => {
+    try {
+        const { leadId, whatsappStatus } = req.body;
+
+        if (!leadId || !whatsappStatus) {
+            return res.status(400).json({
+                success: false,
+                message: "Lead ID and WhatsApp status are required"
+            });
+        }
+
+        const lead = await LeadData.findByIdAndUpdate(
+            leadId,
+            { 
+                whatsappStatus,
+                whatsappVerifiedAt: new Date()
+            },
+            { new: true }
+        );
+
+        if (!lead) {
+            return res.status(404).json({
+                success: false,
+                message: "Lead not found"
+            });
+        }
+
+        res.json({
+            success: true,
+            message: "WhatsApp status updated successfully",
+            lead
+        });
+    } catch (error) {
+        console.error("Error updating WhatsApp status:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// Bulk update WhatsApp status for multiple leads
+export const bulkUpdateWhatsAppStatus = async (req, res) => {
+    try {
+        const { updates } = req.body; // Array of { phone, status }
+
+        if (!updates || !Array.isArray(updates)) {
+            return res.status(400).json({
+                success: false,
+                message: "Updates array is required"
+            });
+        }
+
+        const bulkOps = updates.map(({ phone, status }) => ({
+            updateMany: {
+                filter: { phone },
+                update: { 
+                    whatsappStatus: status,
+                    whatsappVerifiedAt: new Date()
+                }
+            }
+        }));
+
+        await LeadData.bulkWrite(bulkOps);
+
+        res.json({
+            success: true,
+            message: `Updated ${updates.length} leads`
+        });
+    } catch (error) {
+        console.error("Error bulk updating WhatsApp status:", error);
         res.status(500).json({
             success: false,
             message: error.message

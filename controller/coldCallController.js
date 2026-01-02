@@ -1,12 +1,43 @@
 import ColdCall from "../models/coldCallSchema.js";
+import QualifiedLeads from "../models/qualifiedLeadsSchema.js";
 
 // CREATE
 export const createColdCall = async (req, res) => {
     try {
-        const { userId, name, numbers } = req.body;
+        const { userId, name, numbers, qualifiedLeadsId, callScript } = req.body;
 
-        if (!userId || !name || !numbers || !Array.isArray(numbers)) {
-            return res.status(400).json({ success: false, message: "Missing required fields or invalid numbers format" });
+        if (!userId || !name) {
+            return res.status(400).json({ success: false, message: "Missing required fields" });
+        }
+
+        // If creating from qualified leads
+        if (qualifiedLeadsId) {
+            const newColdCall = new ColdCall({
+                userId,
+                name,
+                qualifiedLeadsId,
+                callScript: callScript || '',
+                numbers: [] // Use qualified leads entries instead
+            });
+
+            await newColdCall.save();
+            
+            // Populate and return
+            const populated = await ColdCall.findById(newColdCall._id)
+                .populate({
+                    path: 'qualifiedLeadsId',
+                    populate: {
+                        path: 'entries.leadId',
+                        model: 'LeadData'
+                    }
+                });
+            
+            return res.status(201).json({ success: true, data: populated });
+        }
+
+        // Legacy: numbers array
+        if (!numbers || !Array.isArray(numbers)) {
+            return res.status(400).json({ success: false, message: "Numbers array required for standalone campaign" });
         }
 
         // Format numbers if they are just strings
@@ -20,7 +51,8 @@ export const createColdCall = async (req, res) => {
         const newColdCall = new ColdCall({
             userId,
             name,
-            numbers: formattedNumbers
+            numbers: formattedNumbers,
+            callScript: callScript || ''
         });
 
         await newColdCall.save();
@@ -35,7 +67,15 @@ export const createColdCall = async (req, res) => {
 export const getColdCallsByUser = async (req, res) => {
     try {
         const { userId } = req.params;
-        const coldCalls = await ColdCall.find({ userId }).sort({ createdAt: -1 });
+        const coldCalls = await ColdCall.find({ userId })
+            .populate({
+                path: 'qualifiedLeadsId',
+                populate: {
+                    path: 'entries.leadId',
+                    model: 'LeadData'
+                }
+            })
+            .sort({ createdAt: -1 });
         res.status(200).json({ success: true, data: coldCalls });
     } catch (error) {
         console.error("Error fetching ColdCalls:", error);
@@ -47,13 +87,61 @@ export const getColdCallsByUser = async (req, res) => {
 export const getColdCallById = async (req, res) => {
     try {
         const { id } = req.params;
-        const coldCall = await ColdCall.findById(id);
+        const coldCall = await ColdCall.findById(id)
+            .populate({
+                path: 'qualifiedLeadsId',
+                populate: {
+                    path: 'entries.leadId',
+                    model: 'LeadData'
+                }
+            });
         if (!coldCall) {
             return res.status(404).json({ success: false, message: "ColdCall list not found" });
         }
         res.status(200).json({ success: true, data: coldCall });
     } catch (error) {
         console.error("Error fetching ColdCall BY ID:", error);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+};
+
+// UPDATE CALL STATUS (for qualified leads based campaigns)
+export const updateCallStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { entryId, status, notes, recordingUrl } = req.body;
+
+        const coldCall = await ColdCall.findById(id);
+        if (!coldCall) {
+            return res.status(404).json({ success: false, message: "Campaign not found" });
+        }
+
+        if (!coldCall.qualifiedLeadsId) {
+            return res.status(400).json({ success: false, message: "This campaign doesn't use qualified leads" });
+        }
+
+        // Update status in qualified leads
+        const qualifiedLeads = await QualifiedLeads.findById(coldCall.qualifiedLeadsId);
+        if (!qualifiedLeads) {
+            return res.status(404).json({ success: false, message: "Qualified leads not found" });
+        }
+
+        const entryIndex = qualifiedLeads.entries.findIndex(e => e._id.toString() === entryId);
+        if (entryIndex === -1) {
+            return res.status(404).json({ success: false, message: "Entry not found" });
+        }
+
+        qualifiedLeads.entries[entryIndex].callStatus = status;
+        qualifiedLeads.entries[entryIndex].lastCalledAt = new Date();
+        qualifiedLeads.entries[entryIndex].callAttempts = (qualifiedLeads.entries[entryIndex].callAttempts || 0) + 1;
+        if (notes) qualifiedLeads.entries[entryIndex].callNotes = notes;
+        if (recordingUrl) qualifiedLeads.entries[entryIndex].recordingUrl = recordingUrl;
+
+        await qualifiedLeads.save();
+
+        res.status(200).json({ success: true, data: qualifiedLeads.entries[entryIndex] });
+    } catch (error) {
+        console.error("Error updating call status:", error);
         res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 };

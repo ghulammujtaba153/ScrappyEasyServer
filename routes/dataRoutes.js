@@ -1,5 +1,19 @@
 import express from "express";
-import { createData, getData, updateData, deleteData, getPhoneNumbers, getAllUniqueStrings, appendDataEntries, getDataRecordById, updateCityData, updateScreenshotData, toggleFavorite } from "../controller/dataController.js";
+import { 
+    createData, 
+    getData, 
+    updateData, 
+    deleteData, 
+    getPhoneNumbers, 
+    getAllUniqueStrings, 
+    appendDataEntries, 
+    getDataRecordById, 
+    updateCityData, 
+    updateScreenshotData, 
+    toggleFavorite,
+    updateWhatsAppStatus,
+    bulkUpdateWhatsAppStatus
+} from "../controller/dataController.js";
 
 const dataRouter = express.Router();
 
@@ -14,6 +28,8 @@ dataRouter.get("/:id", getData);
 dataRouter.post("/update-city", updateCityData);
 dataRouter.post("/update-screenshots", updateScreenshotData);
 dataRouter.post("/toggle-favorite", toggleFavorite);
+dataRouter.post("/update-whatsapp-status", updateWhatsAppStatus);
+dataRouter.post("/bulk-update-whatsapp-status", bulkUpdateWhatsAppStatus);
 
 
 export default dataRouter;
