@@ -20,8 +20,7 @@ export const createData = async (req, res) => {
         const newOperation = await Data.create({
             userId,
             searchString,
-            leads: [],
-            data: uniqueData // Keep legacy data for backward compatibility
+            leads: []
         });
 
         // Create LeadData documents for each unique entry
@@ -251,12 +250,6 @@ export const appendDataEntries = async (req, res) => {
             // Add new lead references to operation
             record.leads.push(...newLeads.map(lead => lead._id));
             
-            // Also update legacy data array
-            if (!Array.isArray(record.data)) {
-                record.data = [];
-            }
-            record.data.push(...uniqueEntries);
-            
             await record.save();
         }
 
@@ -305,31 +298,33 @@ export const updateScreenshotData = async (req, res) => {
     try {
         const { recordId, screenshotData } = req.body;
 
-        if (!recordId || !screenshotData) {
+        if (!screenshotData || Object.keys(screenshotData).length === 0) {
             return res.status(400).json({
                 success: false,
-                message: "Record ID and screenshot data are required"
+                message: "Screenshot data is required"
             });
         }
 
-        const record = await Data.findById(recordId).populate('leads');
-
-        if (!record) {
-            return res.status(404).json({
-                success: false,
-                message: "Record not found"
-            });
-        }
-
-        // Update screenshotUrl on LeadData documents
-        const updatePromises = Object.entries(screenshotData).map(async ([index, url]) => {
-            const leadIndex = parseInt(index);
-            if (record.leads[leadIndex]) {
+        // screenshotData can be { leadId: url } or { index: url } format
+        const updatePromises = Object.entries(screenshotData).map(async ([key, url]) => {
+            // Check if key is a valid ObjectId (leadId)
+            if (mongoose.Types.ObjectId.isValid(key)) {
                 return LeadData.findByIdAndUpdate(
-                    record.leads[leadIndex]._id,
+                    key,
                     { screenshotUrl: url },
                     { new: true }
                 );
+            } else if (recordId) {
+                // Fallback for legacy index-based updates
+                const record = await Data.findById(recordId).populate('leads');
+                const leadIndex = parseInt(key);
+                if (record?.leads?.[leadIndex]) {
+                    return LeadData.findByIdAndUpdate(
+                        record.leads[leadIndex]._id,
+                        { screenshotUrl: url },
+                        { new: true }
+                    );
+                }
             }
         });
 
@@ -461,53 +456,23 @@ export const getAllUniqueStrings = async (req, res) => {
                     docId: { $first: "$_id" },
                     searchString: { $first: "$searchString" },
                     updatedAt: { $max: "$updatedAt" },
-                    leadsConfig: { $push: "$leads" }, // Collect all 'leads' arrays (normalized)
-                    dataConfig: { $push: "$data" } // Collect all 'data' arrays (legacy)
+                    leadsConfig: { $push: "$leads" } // Collect all 'leads' arrays
                 }
             },
-            // Calculate count from leads (primary) or data (fallback)
+            // Calculate count from leads
             {
                 $project: {
                     _id: 1,
                     id: "$docId",
                     searchString: 1,
                     updatedAt: 1,
-                    leadsCount: {
+                    count: {
                         $reduce: {
                             input: "$leadsConfig",
                             initialValue: 0,
                             in: { $add: ["$$value", { $size: { $ifNull: ["$$this", []] } }] }
                         }
-                    },
-                    dataCount: {
-                        $reduce: {
-                            input: "$dataConfig",
-                            initialValue: 0,
-                            in: { $add: ["$$value", { $size: { $ifNull: ["$$this", []] } }] }
-                        }
                     }
-                }
-            },
-            // Use the larger count (leads preferred, data as fallback)
-            {
-                $addFields: {
-                    count: {
-                        $cond: {
-                            if: { $gt: ["$leadsCount", 0] },
-                            then: "$leadsCount",
-                            else: "$dataCount"
-                        }
-                    }
-                }
-            },
-            // Remove intermediate fields
-            {
-                $project: {
-                    _id: 1,
-                    id: 1,
-                    searchString: 1,
-                    updatedAt: 1,
-                    count: 1
                 }
             },
             { $sort: { updatedAt: -1 } },
@@ -546,31 +511,33 @@ export const updateCityData = async (req, res) => {
     try {
         const { recordId, cityData } = req.body;
 
-        if (!recordId || !cityData) {
+        if (!cityData || Object.keys(cityData).length === 0) {
             return res.status(400).json({
                 success: false,
-                message: "Record ID and city data are required"
+                message: "City data is required"
             });
         }
 
-        const record = await Data.findById(recordId).populate('leads');
-
-        if (!record) {
-            return res.status(404).json({
-                success: false,
-                message: "Record not found"
-            });
-        }
-
-        // Update city on LeadData documents
-        const updatePromises = Object.entries(cityData).map(async ([index, city]) => {
-            const leadIndex = parseInt(index);
-            if (record.leads[leadIndex]) {
+        // cityData is now { leadId: city } format
+        const updatePromises = Object.entries(cityData).map(async ([leadId, city]) => {
+            // Check if leadId is a valid ObjectId (not an index)
+            if (mongoose.Types.ObjectId.isValid(leadId)) {
                 return LeadData.findByIdAndUpdate(
-                    record.leads[leadIndex]._id,
+                    leadId,
                     { city },
                     { new: true }
                 );
+            } else if (recordId) {
+                // Fallback for legacy index-based updates
+                const record = await Data.findById(recordId).populate('leads');
+                const leadIndex = parseInt(leadId);
+                if (record?.leads?.[leadIndex]) {
+                    return LeadData.findByIdAndUpdate(
+                        record.leads[leadIndex]._id,
+                        { city },
+                        { new: true }
+                    );
+                }
             }
         });
 

@@ -60,7 +60,8 @@ const validatePhoneNumbers = (req, res, next) => {
 // Initialize WhatsApp session for user
 verificationRouter.post('/initialize', authMiddleware, async (req, res) => {
     try {
-        await whatsappController.initializeForUser(req.userId);
+        const { forceNew } = req.body;
+        await whatsappController.initializeForUser(req.userId, forceNew || false);
         
         res.json({
             success: true,
@@ -75,9 +76,16 @@ verificationRouter.post('/initialize', authMiddleware, async (req, res) => {
 });
 
 // Check connection status
-verificationRouter.get('/status', authMiddleware, (req, res) => {
+verificationRouter.get('/status', authMiddleware, async (req, res) => {
     try {
         const status = whatsappController.getStatus(req.userId);
+
+        // If session needs reinitialization, start it automatically
+        if (status.needsReinitialization && !status.isInitializing) {
+            console.log(`Auto-reinitializing session for user ${req.userId}`);
+            // Don't await - let it run in background
+            whatsappController.initializeForUser(req.userId, true).catch(console.error);
+        }
 
         res.json({
             success: true,
@@ -92,19 +100,21 @@ verificationRouter.get('/status', authMiddleware, (req, res) => {
 });
 
 // Get QR code for scanning
-verificationRouter.get('/qr', authMiddleware, (req, res) => {
+verificationRouter.get('/qr', authMiddleware, async (req, res) => {
     try {
-        const status = whatsappController.getStatus(req.userId);
+        let status = whatsappController.getStatus(req.userId);
 
-        if (status.hasQRCode) {
-            res.json({
-                success: true,
-                data: {
-                    qrCode: status.qrCode,
-                    message: 'Scan this QR code with WhatsApp'
-                }
-            });
-        } else if (status.isConnected) {
+        // If not initialized or needs reinitialization, start it
+        if (!status.initialized || status.needsReinitialization) {
+            console.log(`Initializing new session for QR request: ${req.userId}`);
+            await whatsappController.initializeForUser(req.userId, status.needsReinitialization);
+            
+            // Wait a bit for QR to be generated
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            status = whatsappController.getStatus(req.userId);
+        }
+
+        if (status.isConnected) {
             res.json({
                 success: true,
                 data: {
@@ -112,10 +122,25 @@ verificationRouter.get('/qr', authMiddleware, (req, res) => {
                     isConnected: true
                 }
             });
+        } else if (status.hasQRCode) {
+            res.json({
+                success: true,
+                data: {
+                    qrCode: status.qrCode,
+                    message: 'Scan this QR code with WhatsApp'
+                }
+            });
+        } else if (status.isInitializing) {
+            res.json({
+                success: false,
+                error: 'Generating QR code, please wait...',
+                isInitializing: true
+            });
         } else {
             res.json({
                 success: false,
-                error: 'No QR code available yet. Please wait...'
+                error: 'No QR code available. Please try again.',
+                lastError: status.lastError
             });
         }
     } catch (error) {

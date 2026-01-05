@@ -14,14 +14,7 @@ const dataSchema = new mongoose.Schema({
     leads: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: "LeadData"
-    }],
-    // Legacy: raw data for backward compatibility
-    data: {
-        type: [mongoose.Schema.Types.Mixed],
-        default: [],
-    },
-    
-    
+    }]
 }, {
     timestamps: true
 })

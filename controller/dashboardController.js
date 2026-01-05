@@ -1,4 +1,8 @@
-import Data from "../models/dataSchema.js";
+import LeadData from "../models/leadDataSchema.js";
+import ColdCall from "../models/coldCallSchema.js";
+import AutomateMessage from "../models/automateMessageSchema.js";
+import QualifiedLeads from "../models/qualifiedLeadsSchema.js";
+import mongoose from "mongoose";
 
 export const getDashboardStats = async (req, res) => {
     try {
@@ -11,70 +15,50 @@ export const getDashboardStats = async (req, res) => {
             });
         }
 
-        // Get all data for the user
-        const userData = await Data.find({ userId });
-
-        // Initialize counters
-        let totalLeads = 0;
-        let whatsappAvailable = 0;
-        let lowRated = 0;
-        const uniqueCities = new Set();
-
-        // Process all records
-        userData.forEach(record => {
-            if (record.data && Array.isArray(record.data)) {
-                record.data.forEach((item, index) => {
-                    // Count total leads
-                    totalLeads++;
-
-                    
-                    // Count WhatsApp available
-                    if (record.whatsappVerifications && item.phone) {
-                        const verifications = record.whatsappVerifications instanceof Map ?
-                            record.whatsappVerifications :
-                            new Map(Object.entries(record.whatsappVerifications || {}));
-                        
-                        // Normalize phone number - add + if not present
-                        let normalizedPhone = item.phone.replace(/\D/g, ''); // Remove all non-digits
-                        if (normalizedPhone && !normalizedPhone.startsWith('+')) {
-                            normalizedPhone = '+' + normalizedPhone;
+        // Get aggregated stats directly from LeadData collection
+        const stats = await LeadData.aggregate([
+            { $match: { userId: new mongoose.Types.ObjectId(userId) } },
+            {
+                $group: {
+                    _id: null,
+                    totalLeads: { $sum: 1 },
+                    whatsappAvailable: {
+                        $sum: {
+                            $cond: [{ $eq: ['$whatsappStatus', 'verified'] }, 1, 0]
                         }
-                        
-                        const verification = verifications.get(normalizedPhone);
-                        if (verification && verification.isRegistered) {
-                            whatsappAvailable++;
+                    },
+                    lowRated: {
+                        $sum: {
+                            $cond: [
+                                {
+                                    $and: [
+                                        { $ne: ['$rating', ''] },
+                                        { $lt: [{ $toDouble: '$rating' }, 4.0] }
+                                    ]
+                                },
+                                1,
+                                0
+                            ]
                         }
-                    }
-
-                    // Count low rated businesses (< 4.0)
-                    const rating = parseFloat(item.rating);
-                    if (!isNaN(rating) && rating < 4.0) {
-                        lowRated++;
-                    }
-                });
+                    },
+                    cities: { $addToSet: '$city' }
+                }
             }
+        ]);
 
-            // Collect unique cities
-            if (record.cityData) {
-                const cityDataMap = record.cityData instanceof Map ?
-                    record.cityData :
-                    new Map(Object.entries(record.cityData || {}));
-
-                cityDataMap.forEach((city) => {
-                    if (city && city !== 'Unknown' && city !== 'No URL' && city !== 'No Coordinates') {
-                        uniqueCities.add(city);
-                    }
-                });
-            }
-        });
+        // Filter out empty/invalid cities and count unique ones
+        const result = stats[0] || { totalLeads: 0, whatsappAvailable: 0, lowRated: 0, cities: [] };
+        const validCities = result.cities.filter(city => 
+            city && city !== '' && city !== 'Unknown' && city !== 'No URL' && city !== 'No Coordinates'
+        );
 
         res.status(200).json({
             success: true,
             data: {
-                citiesCovered: uniqueCities.size,
-                totalLeads: totalLeads,
-                whatsappAvailable: whatsappAvailable,
-                lowRated: lowRated
+                citiesCovered: validCities.length,
+                totalLeads: result.totalLeads,
+                whatsappAvailable: result.whatsappAvailable,
+                lowRated: result.lowRated
             }
         });
     } catch (error) {
@@ -85,6 +69,7 @@ export const getDashboardStats = async (req, res) => {
         });
     }
 };
+
 
 // Get chart data for dashboard
 export const getDashboardChartData = async (req, res) => {
@@ -103,47 +88,40 @@ export const getDashboardChartData = async (req, res) => {
         const now = new Date();
         let startDate;
         let dateFormat;
-        let groupBy;
 
         switch (filter) {
             case 'weekly':
                 startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
                 dateFormat = 'day';
-                groupBy = 7;
                 break;
             case 'monthly':
                 startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
                 dateFormat = 'week';
-                groupBy = 4;
                 break;
             case 'yearly':
                 startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
                 dateFormat = 'month';
-                groupBy = 12;
                 break;
             default:
                 startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
                 dateFormat = 'day';
-                groupBy = 7;
         }
 
-        // Get all data for the user within date range
-        const userData = await Data.find({
-            userId,
+        // Get all leads for the user within date range
+        const leads = await LeadData.find({
+            userId: new mongoose.Types.ObjectId(userId),
             createdAt: { $gte: startDate }
         }).sort({ createdAt: 1 });
 
         // Initialize data structures
-        const leadsOverTime = [];
+        const timeGroups = {};
         const ratingDistribution = { excellent: 0, good: 0, average: 0, poor: 0 };
         const citiesData = {};
         const whatsappStats = { available: 0, notAvailable: 0 };
 
-        // Process records for time-based data
-        const timeGroups = {};
-        
-        userData.forEach(record => {
-            const recordDate = new Date(record.createdAt);
+        // Process each lead
+        leads.forEach(lead => {
+            const recordDate = new Date(lead.createdAt);
             let timeKey;
 
             if (dateFormat === 'day') {
@@ -159,52 +137,28 @@ export const getDashboardChartData = async (req, res) => {
                 timeGroups[timeKey] = { leads: 0, whatsapp: 0 };
             }
 
-            if (record.data && Array.isArray(record.data)) {
-                record.data.forEach((item, index) => {
-                    timeGroups[timeKey].leads++;
+            timeGroups[timeKey].leads++;
 
-                    // Rating distribution
-                    const rating = parseFloat(item.rating);
-                    if (!isNaN(rating)) {
-                        if (rating >= 4.5) ratingDistribution.excellent++;
-                        else if (rating >= 4.0) ratingDistribution.good++;
-                        else if (rating >= 3.0) ratingDistribution.average++;
-                        else ratingDistribution.poor++;
-                    }
+            // Rating distribution
+            const rating = parseFloat(lead.rating);
+            if (!isNaN(rating)) {
+                if (rating >= 4.5) ratingDistribution.excellent++;
+                else if (rating >= 4.0) ratingDistribution.good++;
+                else if (rating >= 3.0) ratingDistribution.average++;
+                else ratingDistribution.poor++;
+            }
 
-                    // WhatsApp stats
-                    if (record.whatsappVerifications && item.phone) {
-                        const verifications = record.whatsappVerifications instanceof Map ?
-                            record.whatsappVerifications :
-                            new Map(Object.entries(record.whatsappVerifications || {}));
-                        
-                        let normalizedPhone = item.phone.replace(/\D/g, '');
-                        if (normalizedPhone && !normalizedPhone.startsWith('+')) {
-                            normalizedPhone = '+' + normalizedPhone;
-                        }
-                        
-                        const verification = verifications.get(normalizedPhone);
-                        if (verification && verification.isRegistered) {
-                            whatsappStats.available++;
-                            timeGroups[timeKey].whatsapp++;
-                        } else {
-                            whatsappStats.notAvailable++;
-                        }
-                    }
-                });
+            // WhatsApp stats
+            if (lead.whatsappStatus === 'verified') {
+                whatsappStats.available++;
+                timeGroups[timeKey].whatsapp++;
+            } else if (lead.whatsappStatus === 'not-verified') {
+                whatsappStats.notAvailable++;
             }
 
             // City data
-            if (record.cityData) {
-                const cityDataMap = record.cityData instanceof Map ?
-                    record.cityData :
-                    new Map(Object.entries(record.cityData || {}));
-
-                cityDataMap.forEach((city) => {
-                    if (city && city !== 'Unknown' && city !== 'No URL' && city !== 'No Coordinates') {
-                        citiesData[city] = (citiesData[city] || 0) + 1;
-                    }
-                });
+            if (lead.city && lead.city !== '' && lead.city !== 'Unknown' && lead.city !== 'No URL' && lead.city !== 'No Coordinates') {
+                citiesData[lead.city] = (citiesData[lead.city] || 0) + 1;
             }
         });
 
@@ -214,7 +168,6 @@ export const getDashboardChartData = async (req, res) => {
 
         let sortedKeys;
         if (dateFormat === 'day') {
-            // Sort by day order starting from today and going back
             const today = now.getDay();
             sortedKeys = [];
             for (let i = 6; i >= 0; i--) {
@@ -224,7 +177,6 @@ export const getDashboardChartData = async (req, res) => {
         } else if (dateFormat === 'week') {
             sortedKeys = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
         } else {
-            // Sort by month order
             const currentMonth = now.getMonth();
             sortedKeys = [];
             for (let i = 11; i >= 0; i--) {
@@ -233,6 +185,7 @@ export const getDashboardChartData = async (req, res) => {
             }
         }
 
+        const leadsOverTime = [];
         sortedKeys.forEach(key => {
             leadsOverTime.push({
                 name: key,
@@ -261,13 +214,84 @@ export const getDashboardChartData = async (req, res) => {
             { name: 'Not Available', value: whatsappStats.notAvailable }
         ].filter(item => item.value > 0);
 
+        // Communication Methods Stats - Cold Calls & Messages
+        const userObjectId = new mongoose.Types.ObjectId(userId);
+        
+        // Get cold call stats
+        const coldCallCampaigns = await ColdCall.find({ userId: userObjectId })
+            .populate({
+                path: 'qualifiedLeadsId',
+                select: 'entries',
+                populate: {
+                    path: 'entries.leadId',
+                    select: 'phone'
+                }
+            });
+        
+        let coldCallTotal = 0;
+        let coldCallContacted = 0;
+        
+        coldCallCampaigns.forEach(campaign => {
+            if (campaign.qualifiedLeadsId?.entries?.length > 0) {
+                // Qualified leads campaign
+                const entries = campaign.qualifiedLeadsId.entries.filter(e => e.leadId?.phone);
+                coldCallTotal += entries.length;
+                coldCallContacted += entries.filter(e => 
+                    e.callStatus && e.callStatus !== 'not-called' && e.callStatus !== 'pending'
+                ).length;
+            } else if (campaign.numbers?.length > 0) {
+                // Legacy numbers
+                coldCallTotal += campaign.numbers.length;
+                coldCallContacted += campaign.numbers.filter(n => 
+                    n.status && n.status !== 'not-called' && n.status !== 'pending'
+                ).length;
+            }
+        });
+
+        // Get message stats
+        const messageCampaigns = await AutomateMessage.find({ userId: userObjectId })
+            .populate({
+                path: 'qualifiedLeadsId',
+                select: 'entries',
+                populate: {
+                    path: 'entries.leadId',
+                    select: 'phone'
+                }
+            });
+        
+        let messageTotal = 0;
+        let messageContacted = 0;
+        
+        messageCampaigns.forEach(campaign => {
+            if (campaign.qualifiedLeadsId?.entries?.length > 0) {
+                // Qualified leads campaign
+                const entries = campaign.qualifiedLeadsId.entries.filter(e => e.leadId?.phone);
+                messageTotal += entries.length;
+                messageContacted += entries.filter(e => 
+                    e.messageStatus && e.messageStatus !== 'not-sent' && e.messageStatus !== 'pending'
+                ).length;
+            } else if (campaign.numbers?.length > 0) {
+                // Legacy numbers
+                messageTotal += campaign.numbers.length;
+                messageContacted += campaign.numbers.filter(n => 
+                    n.status === 'sent' || n.status === 'delivered' || n.status === 'read'
+                ).length;
+            }
+        });
+
+        const communicationMethods = [
+            { method: 'coldCall', contacted: coldCallContacted, total: coldCallTotal },
+            { method: 'messages', contacted: messageContacted, total: messageTotal }
+        ];
+
         res.status(200).json({
             success: true,
             data: {
                 leadsOverTime,
                 ratingDistribution: ratingData,
                 cityDistribution: cityChartData,
-                whatsappDistribution: whatsappData
+                whatsappDistribution: whatsappData,
+                communicationMethods
             }
         });
     } catch (error) {
