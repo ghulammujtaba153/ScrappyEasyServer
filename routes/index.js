@@ -25,6 +25,9 @@ import stripeRouter from "./stripeRoutes.js";
 import locationRouter from "./locationRoutes.js";
 import collaborationRouter from "./collaborationRoutes.js";
 import qualifiedLeadsRouter from "./qualifiedLeadsRoutes.js";
+import teamRouter from "./teamRoutes.js";
+import teamDataRouter from "./teamDataRoutes.js";
+import notificationRouter from "./notificationRoutes.js";
 
 const router = express.Router();
 
@@ -54,5 +57,8 @@ router.use("/stripe", stripeRouter);
 router.use("/location", locationRouter);
 router.use("/collaboration", collaborationRouter);
 router.use("/qualified-leads", qualifiedLeadsRouter);
+router.use("/team", teamRouter);
+router.use("/team-data", teamDataRouter);
+router.use("/notifications", notificationRouter);
 
 export default router;

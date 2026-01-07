@@ -224,5 +224,11 @@ const getOnlineUsersList = () => {
     }));
 };
 
+// Get user's socket ID by userId
+export const getUserSocketId = (userId) => {
+    const user = onlineUsers.get(userId);
+    return user?.socketId || null;
+};
+
 export default setupSocketIO;
 
