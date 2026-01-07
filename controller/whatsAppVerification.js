@@ -482,8 +482,18 @@ class WhatsAppController {
                 initialized: false,
                 isInitializing: false,
                 needsReinitialization: false,
-                lastError: null
+                lastError: null,
+                phoneNumber: null
             }
+        }
+
+        // Extract phone number from connected client
+        let phoneNumber = null;
+        if (session.isConnected && session.client?.user?.id) {
+            // Format: 923001234567:0@s.whatsapp.net -> +923001234567
+            const userJid = session.client.user.id;
+            const numberPart = userJid.split(':')[0].split('@')[0];
+            phoneNumber = '+' + numberPart;
         }
 
         return {
@@ -493,7 +503,8 @@ class WhatsAppController {
             initialized: true,
             isInitializing: session.isInitializing || false,
             needsReinitialization: session.needsReinitialization || false,
-            lastError: session.lastError || null
+            lastError: session.lastError || null,
+            phoneNumber: phoneNumber
         }
     }
 
