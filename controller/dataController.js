@@ -696,3 +696,49 @@ export const bulkUpdateWhatsAppStatus = async (req, res) => {
         });
     }
 };
+
+// Update lead status (not-reached, interested, not-interested, no-response)
+export const updateLeadStatus = async (req, res) => {
+    try {
+        const { leadId, status } = req.body;
+        
+        if (!leadId || !status) {
+            return res.status(400).json({
+                success: false,
+                message: 'leadId and status are required'
+            });
+        }
+
+        const validStatuses = ['not-reached', 'interested', 'not-interested', 'no-response'];
+        if (!validStatuses.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+            });
+        }
+
+        const updatedLead = await LeadData.findByIdAndUpdate(
+            leadId,
+            { status },
+            { new: true }
+        );
+
+        if (!updatedLead) {
+            return res.status(404).json({
+                success: false,
+                message: 'Lead not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: updatedLead
+        });
+    } catch (error) {
+        console.error("Error updating lead status:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};

@@ -63,6 +63,11 @@ const leadDataSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    status: {
+        type: String,
+        enum: ['not-reached', 'interested', 'not-interested', "no-response" ],
+        default: 'not-reached'
+    },
     // Additional metadata from scraping
     metadata: {
         type: mongoose.Schema.Types.Mixed,

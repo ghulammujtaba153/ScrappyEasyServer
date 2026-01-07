@@ -12,7 +12,8 @@ import {
     updateScreenshotData, 
     toggleFavorite,
     updateWhatsAppStatus,
-    bulkUpdateWhatsAppStatus
+    bulkUpdateWhatsAppStatus,
+    updateLeadStatus
 } from "../controller/dataController.js";
 
 const dataRouter = express.Router();
@@ -30,6 +31,7 @@ dataRouter.post("/update-screenshots", updateScreenshotData);
 dataRouter.post("/toggle-favorite", toggleFavorite);
 dataRouter.post("/update-whatsapp-status", updateWhatsAppStatus);
 dataRouter.post("/bulk-update-whatsapp-status", bulkUpdateWhatsAppStatus);
+dataRouter.post("/update-lead-status", updateLeadStatus);
 
 
 export default dataRouter;
