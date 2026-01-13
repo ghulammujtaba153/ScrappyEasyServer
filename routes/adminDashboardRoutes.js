@@ -1,5 +1,5 @@
 import express from "express";
-import { 
+import {
     getAdminDashboardStats,
     getAdminDashboardData,
     getUserGrowthData,
@@ -8,13 +8,17 @@ import {
     getUserActivityData,
     getUserDetailsStats
 } from "../controller/adminDashboardController.js";
+import { authMiddleware, isAdmin } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Get all dashboard data in one call (recommended)
+// Apply authMiddleware and isAdmin to all routes in this router
+router.use(authMiddleware, isAdmin);
+
+
 router.get("/", getAdminDashboardData);
 
-// Individual endpoints
+
 router.get("/stats", getAdminDashboardStats);
 router.get("/user-growth", getUserGrowthData);
 router.get("/revenue", getRevenueData);

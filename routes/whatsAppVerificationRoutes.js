@@ -62,7 +62,7 @@ verificationRouter.post('/initialize', authMiddleware, async (req, res) => {
     try {
         const { forceNew } = req.body;
         await whatsappController.initializeForUser(req.userId, forceNew || false);
-        
+
         res.json({
             success: true,
             message: 'WhatsApp session initialization started. Please check /qr endpoint for QR code.'
@@ -80,13 +80,7 @@ verificationRouter.get('/status', authMiddleware, async (req, res) => {
     try {
         const status = whatsappController.getStatus(req.userId);
 
-        // If session needs reinitialization, start it automatically
-        if (status.needsReinitialization && !status.isInitializing) {
-            console.log(`Auto-reinitializing session for user ${req.userId}`);
-            // Don't await - let it run in background
-            whatsappController.initializeForUser(req.userId, true).catch(console.error);
-        }
-
+        // Return current status only
         res.json({
             success: true,
             data: status
@@ -108,7 +102,7 @@ verificationRouter.get('/qr', authMiddleware, async (req, res) => {
         if (!status.initialized || status.needsReinitialization) {
             console.log(`Initializing new session for QR request: ${req.userId}`);
             await whatsappController.initializeForUser(req.userId, status.needsReinitialization);
-            
+
             // Wait a bit for QR to be generated
             await new Promise(resolve => setTimeout(resolve, 2000));
             status = whatsappController.getStatus(req.userId);

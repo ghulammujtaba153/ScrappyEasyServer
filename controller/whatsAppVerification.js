@@ -14,8 +14,9 @@ class WhatsAppController {
         this.MAX_RECONNECT_ATTEMPTS = 3
     }
 
-    async initializeForUser(userId, forceNewSession = false) {
+    async initializeForUser(userIdInput, forceNewSession = false) {
         try {
+            const userId = userIdInput?.toString()
             console.log(`Initializing WhatsApp client for user ${userId}...`)
 
             // Check if already initializing to prevent duplicate sessions
@@ -43,7 +44,7 @@ class WhatsAppController {
 
             // Create user-specific auth folder
             const authFolder = path.join(process.cwd(), 'whatsapp_sessions', userId)
-            
+
             // If forcing new session, delete auth folder
             if (forceNewSession && fs.existsSync(authFolder)) {
                 try {
@@ -103,7 +104,7 @@ class WhatsAppController {
                     currentSession.qrCode = qr
                     currentSession.isInitializing = false
                     console.log(`QR Code generated for user ${userId}`)
-                    qrcode.generate(qr, { small: true })
+                    // qrcode.generate(qr, { small: true }) // Removed to reduce terminal clutter
                 }
 
                 if (connection === 'open') {
@@ -119,10 +120,10 @@ class WhatsAppController {
                     const statusCode = lastDisconnect?.error?.output?.statusCode
                     const errorMessage = lastDisconnect?.error?.message || 'unknown'
                     const reason = lastDisconnect?.error?.output?.payload?.error
-                    
+
                     console.log(`❌ WhatsApp disconnected for user ${userId}`)
                     console.log(`Disconnect reason: ${errorMessage}, Status: ${statusCode}, Reason: ${reason}`)
-                    
+
                     currentSession.isConnected = false
                     currentSession.isInitializing = false
                     currentSession.lastError = { statusCode, errorMessage, reason }
@@ -151,7 +152,9 @@ class WhatsAppController {
         const session = this.clients.get(userId)
         if (!session) return
 
-        const shouldReconnect = session.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS
+        // Only reconnect if we were previously connected. 
+        // If we were just initializing/waiting for QR, let the user trigger it again manually.
+        const shouldReconnect = session.isConnected && session.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS
 
         switch (statusCode) {
             case DisconnectReason.loggedOut:
@@ -231,9 +234,10 @@ class WhatsAppController {
         }
     }
 
-    async clearSessionAndRegenerate(userId) {
+    async clearSessionAndRegenerate(userIdInput) {
+        const userId = userIdInput?.toString()
         const session = this.clients.get(userId)
-        
+
         // Clean up client
         if (session?.client) {
             try {
@@ -274,13 +278,14 @@ class WhatsAppController {
         return new Promise(resolve => setTimeout(resolve, ms))
     }
 
-    getUserSession(userId) {
+    getUserSession(userIdInput) {
+        const userId = userIdInput?.toString()
         return this.clients.get(userId) || null
     }
 
     async checkSingleNumber(userId, phoneNumber) {
         const session = this.getUserSession(userId)
-        
+
         if (!session) {
             throw new Error('WhatsApp session not initialized. Please initialize first.')
         }
@@ -320,7 +325,7 @@ class WhatsAppController {
 
     async checkMultipleNumbers(userId, phoneNumbers, operationId = null) {
         const session = this.getUserSession(userId)
-        
+
         if (!session || !session.isConnected || !session.client) {
             throw new Error('WhatsApp not connected. Please scan QR code first.')
         }
@@ -364,7 +369,7 @@ class WhatsAppController {
             if (verificationsToSave.length > 0) {
                 try {
                     let updatedCount = 0
-                    
+
                     // Build base filter - scope to user and optionally operation
                     // Convert string IDs to ObjectIds for proper MongoDB matching
                     const baseFilter = {}
@@ -374,57 +379,57 @@ class WhatsAppController {
                     if (operationId) {
                         baseFilter.operationId = typeof operationId === 'string' ? new mongoose.Types.ObjectId(operationId) : operationId
                     }
-                    
+
                     console.log('Base filter for WhatsApp update:', JSON.stringify(baseFilter))
-                    
+
                     for (const { phone, phoneDigits, status } of verificationsToSave) {
                         console.log(`Updating WhatsApp status for phone: ${phone}, digits: ${phoneDigits}, status: ${status}`)
-                        
+
                         // Strategy 1: Exact match (including the + symbol)
                         let result = await LeadData.updateMany(
                             { ...baseFilter, phone: phone },
-                            { 
+                            {
                                 $set: {
                                     whatsappStatus: status,
                                     whatsappVerifiedAt: new Date()
                                 }
                             }
                         )
-                        
+
                         if (result.modifiedCount > 0) {
                             updatedCount += result.modifiedCount
                             console.log(`Strategy 1 (exact match): Updated ${result.modifiedCount} leads`)
                             continue
                         }
-                        
+
                         // Strategy 2: Match phone field containing the digits
                         const last10Digits = phoneDigits.slice(-10)
                         result = await LeadData.updateMany(
                             { ...baseFilter, phone: { $regex: last10Digits, $options: 'i' } },
-                            { 
+                            {
                                 $set: {
                                     whatsappStatus: status,
                                     whatsappVerifiedAt: new Date()
                                 }
                             }
                         )
-                        
+
                         if (result.modifiedCount > 0) {
                             updatedCount += result.modifiedCount
                             console.log(`Strategy 2 (last 10 digits): Updated ${result.modifiedCount} leads`)
                             continue
                         }
-                        
+
                         // Strategy 3: Find leads in this operation and match manually
                         const leads = await LeadData.find({ ...baseFilter, phone: { $exists: true, $ne: '' } })
                         for (const lead of leads) {
                             const leadDigits = lead.phone.replace(/\D/g, '')
                             // Match if last 9 digits are the same
-                            if (leadDigits.length >= 9 && phoneDigits.length >= 9 && 
+                            if (leadDigits.length >= 9 && phoneDigits.length >= 9 &&
                                 leadDigits.slice(-9) === phoneDigits.slice(-9)) {
                                 await LeadData.updateOne(
                                     { _id: lead._id },
-                                    { 
+                                    {
                                         $set: {
                                             whatsappStatus: status,
                                             whatsappVerifiedAt: new Date()
@@ -445,13 +450,13 @@ class WhatsAppController {
 
         } catch (error) {
             console.error('Batch verification error:', error)
-            
+
             // If connection error, mark session as disconnected
             if (error.message.includes('Connection') || error.message.includes('closed')) {
                 session.isConnected = false
                 throw new Error('WhatsApp connection lost. Please reconnect.')
             }
-            
+
             // Fallback to individual checks
             for (const number of phoneNumbers) {
                 try {
@@ -473,7 +478,7 @@ class WhatsAppController {
 
     getStatus(userId) {
         const session = this.getUserSession(userId)
-        
+
         if (!session) {
             return {
                 isConnected: false,
@@ -513,9 +518,10 @@ class WhatsAppController {
         return session?.qrCode || null
     }
 
-    async disconnect(userId) {
+    async disconnect(userIdInput) {
+        const userId = userIdInput?.toString()
         const session = this.getUserSession(userId)
-        
+
         if (session) {
             // Clean up event listeners and close connection
             if (session.client) {
@@ -526,12 +532,12 @@ class WhatsAppController {
                     // Ignore cleanup errors
                 }
             }
-            
+
             session.isConnected = false
             session.qrCode = null
             this.clients.delete(userId)
             console.log(`WhatsApp client disconnected for user ${userId}`)
-            
+
             // Delete auth folder to prevent auto-reconnect
             if (session.authFolder && fs.existsSync(session.authFolder)) {
                 try {

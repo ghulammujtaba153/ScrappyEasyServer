@@ -1,24 +1,30 @@
 import express from "express";
-import { 
-    createData, 
-    getData, 
-    updateData, 
-    deleteData, 
-    getPhoneNumbers, 
-    getAllUniqueStrings, 
-    appendDataEntries, 
-    getDataRecordById, 
-    updateCityData, 
-    updateScreenshotData, 
+import {
+    createData,
+    getData,
+    updateData,
+    deleteData,
+    getPhoneNumbers,
+    getAllUniqueStrings,
+    appendDataEntries,
+    getDataRecordById,
+    updateCityData,
+    updateScreenshotData,
     toggleFavorite,
     updateWhatsAppStatus,
     bulkUpdateWhatsAppStatus,
     updateLeadStatus
 } from "../controller/dataController.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
 
 const dataRouter = express.Router();
 
+// Public route for adding data (from scrapers)
 dataRouter.post("/", createData);
+
+// Apply authMiddleware to remaining routes in this router
+dataRouter.use(authMiddleware);
+
 dataRouter.get("/phones/:userId", getPhoneNumbers);
 dataRouter.get("/unique/:userId", getAllUniqueStrings);
 dataRouter.get("/record/:recordId", getDataRecordById);

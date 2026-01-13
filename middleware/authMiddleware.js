@@ -1,14 +1,15 @@
 import jwt from 'jsonwebtoken';
+import User from '../models/userSchema.js';
 
 /**
- * Middleware to verify JWT token and attach userId to request
+ * Middleware to verify JWT token and attach user to request
  * Protects routes requiring authentication
  */
 export const authMiddleware = async (req, res, next) => {
     try {
         // Get token from Authorization header
         const authHeader = req.headers.authorization;
-        
+
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
             return res.status(401).json({
                 success: false,
@@ -21,8 +22,18 @@ export const authMiddleware = async (req, res, next) => {
         // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-        // Attach userId to request object for use in route handlers
-        req.userId = decoded.id;
+        // Fetch user from database
+        const user = await User.findById(decoded.id).select('-password');
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
+        // Attach user and userId to request object
+        req.user = user;
+        req.userId = user._id;
 
         next();
     } catch (error) {
@@ -32,7 +43,7 @@ export const authMiddleware = async (req, res, next) => {
                 error: 'Invalid token'
             });
         }
-        
+
         if (error.name === 'TokenExpiredError') {
             return res.status(401).json({
                 success: false,
@@ -43,6 +54,21 @@ export const authMiddleware = async (req, res, next) => {
         return res.status(500).json({
             success: false,
             error: error.message
+        });
+    }
+};
+
+/**
+ * Middleware to check if user has admin role
+ * Must be used after authMiddleware
+ */
+export const isAdmin = (req, res, next) => {
+    if (req.user && req.user.role === 'admin') {
+        next();
+    } else {
+        return res.status(403).json({
+            success: false,
+            error: 'Access denied. Admin role required.'
         });
     }
 };
