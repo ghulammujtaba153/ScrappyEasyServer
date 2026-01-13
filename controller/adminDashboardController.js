@@ -8,21 +8,21 @@ export const getAdminDashboardStats = async (req, res) => {
     try {
         // Total Users
         const totalUsers = await User.countDocuments();
-        
+
         // New users this month
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
         const newUsersThisMonth = await User.countDocuments({ createdAt: { $gte: startOfMonth } });
-        
+
         // Previous month users for comparison
         const startOfLastMonth = new Date(startOfMonth);
         startOfLastMonth.setMonth(startOfLastMonth.getMonth() - 1);
-        const usersLastMonth = await User.countDocuments({ 
-            createdAt: { $gte: startOfLastMonth, $lt: startOfMonth } 
+        const usersLastMonth = await User.countDocuments({
+            createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }
         });
-        const userGrowthPercent = usersLastMonth > 0 
-            ? Math.round(((newUsersThisMonth - usersLastMonth) / usersLastMonth) * 100) 
+        const userGrowthPercent = usersLastMonth > 0
+            ? Math.round(((newUsersThisMonth - usersLastMonth) / usersLastMonth) * 100)
             : 100;
 
         // Total Revenue
@@ -45,24 +45,24 @@ export const getAdminDashboardStats = async (req, res) => {
             { $group: { _id: null, total: { $sum: "$amount" } } }
         ]);
         const lastMonthRevenue = revenueLastMonth[0]?.total || 0;
-        const revenueGrowthPercent = lastMonthRevenue > 0 
-            ? Math.round(((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100) 
+        const revenueGrowthPercent = lastMonthRevenue > 0
+            ? Math.round(((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100)
             : 100;
 
         // Active Subscriptions
         const activeSubscriptions = await Subscription.countDocuments({ status: 'Active' });
-        
+
         // Subscriptions last month
-        const subscriptionsLastMonth = await Subscription.countDocuments({ 
+        const subscriptionsLastMonth = await Subscription.countDocuments({
             createdAt: { $gte: startOfLastMonth, $lt: startOfMonth },
             status: 'Active'
         });
-        const subscriptionsThisMonth = await Subscription.countDocuments({ 
+        const subscriptionsThisMonth = await Subscription.countDocuments({
             createdAt: { $gte: startOfMonth },
             status: 'Active'
         });
-        const subscriptionGrowthPercent = subscriptionsLastMonth > 0 
-            ? Math.round(((subscriptionsThisMonth - subscriptionsLastMonth) / subscriptionsLastMonth) * 100) 
+        const subscriptionGrowthPercent = subscriptionsLastMonth > 0
+            ? Math.round(((subscriptionsThisMonth - subscriptionsLastMonth) / subscriptionsLastMonth) * 100)
             : 100;
 
         // Active Users (users with active subscriptions)
@@ -91,7 +91,7 @@ export const getUserGrowthData = async (req, res) => {
     try {
         const { period = 'monthly' } = req.query;
         let months = 6;
-        
+
         if (period === 'weekly') months = 2;
         else if (period === 'yearly') months = 12;
 
@@ -101,10 +101,10 @@ export const getUserGrowthData = async (req, res) => {
         for (let i = months - 1; i >= 0; i--) {
             const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-            
+
             const totalUsers = await User.countDocuments({ createdAt: { $lte: endDate } });
-            const newUsers = await User.countDocuments({ 
-                createdAt: { $gte: startDate, $lte: endDate } 
+            const newUsers = await User.countDocuments({
+                createdAt: { $gte: startDate, $lte: endDate }
             });
 
             const monthName = startDate.toLocaleString('default', { month: 'short' });
@@ -127,7 +127,7 @@ export const getRevenueData = async (req, res) => {
     try {
         const { period = 'monthly' } = req.query;
         let months = 6;
-        
+
         if (period === 'weekly') months = 2;
         else if (period === 'yearly') months = 12;
 
@@ -137,7 +137,7 @@ export const getRevenueData = async (req, res) => {
         for (let i = months - 1; i >= 0; i--) {
             const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-            
+
             const revenueResult = await Subscription.aggregate([
                 { $match: { createdAt: { $gte: startDate, $lte: endDate } } },
                 { $group: { _id: null, total: { $sum: "$amount" } } }
@@ -145,7 +145,7 @@ export const getRevenueData = async (req, res) => {
 
             const monthName = startDate.toLocaleString('default', { month: 'short' });
             const revenue = revenueResult[0]?.total || 0;
-            
+
             data.push({
                 name: monthName,
                 revenue: revenue,
@@ -203,7 +203,7 @@ export const getUserActivityData = async (req, res) => {
     try {
         const { period = 'monthly' } = req.query;
         let months = 6;
-        
+
         if (period === 'weekly') months = 2;
         else if (period === 'yearly') months = 12;
 
@@ -213,15 +213,15 @@ export const getUserActivityData = async (req, res) => {
         for (let i = months - 1; i >= 0; i--) {
             const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-            
+
             // Count user signups as sessions proxy
-            const sessions = await User.countDocuments({ 
-                createdAt: { $gte: startDate, $lte: endDate } 
+            const sessions = await User.countDocuments({
+                createdAt: { $gte: startDate, $lte: endDate }
             });
-            
+
             // Count subscriptions as interactions proxy
-            const interactions = await Subscription.countDocuments({ 
-                createdAt: { $gte: startDate, $lte: endDate } 
+            const interactions = await Subscription.countDocuments({
+                createdAt: { $gte: startDate, $lte: endDate }
             });
 
             const monthName = startDate.toLocaleString('default', { month: 'short' });
@@ -244,7 +244,7 @@ export const getAdminDashboardData = async (req, res) => {
     try {
         const { period = 'monthly' } = req.query;
         let months = 6;
-        
+
         if (period === 'weekly') months = 2;
         else if (period === 'yearly') months = 12;
 
@@ -255,11 +255,11 @@ export const getAdminDashboardData = async (req, res) => {
         // Stats
         const totalUsers = await User.countDocuments();
         const newUsersThisMonth = await User.countDocuments({ createdAt: { $gte: startOfMonth } });
-        const usersLastMonth = await User.countDocuments({ 
-            createdAt: { $gte: startOfLastMonth, $lt: startOfMonth } 
+        const usersLastMonth = await User.countDocuments({
+            createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }
         });
-        const userGrowthPercent = usersLastMonth > 0 
-            ? Math.round(((newUsersThisMonth - usersLastMonth) / usersLastMonth) * 100) 
+        const userGrowthPercent = usersLastMonth > 0
+            ? Math.round(((newUsersThisMonth - usersLastMonth) / usersLastMonth) * 100)
             : (newUsersThisMonth > 0 ? 100 : 0);
 
         const revenueResult = await Subscription.aggregate([
@@ -277,34 +277,34 @@ export const getAdminDashboardData = async (req, res) => {
         ]);
         const monthlyRevenue = revenueThisMonthResult[0]?.total || 0;
         const lastMonthRevenue = revenueLastMonthResult[0]?.total || 0;
-        const revenueGrowthPercent = lastMonthRevenue > 0 
-            ? Math.round(((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100) 
+        const revenueGrowthPercent = lastMonthRevenue > 0
+            ? Math.round(((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100)
             : (monthlyRevenue > 0 ? 100 : 0);
 
         const activeSubscriptions = await Subscription.countDocuments({ status: 'Active' });
-        const subscriptionsThisMonth = await Subscription.countDocuments({ 
+        const subscriptionsThisMonth = await Subscription.countDocuments({
             createdAt: { $gte: startOfMonth }
         });
-        const subscriptionsLastMonth = await Subscription.countDocuments({ 
+        const subscriptionsLastMonth = await Subscription.countDocuments({
             createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }
         });
-        const subscriptionGrowthPercent = subscriptionsLastMonth > 0 
-            ? Math.round(((subscriptionsThisMonth - subscriptionsLastMonth) / subscriptionsLastMonth) * 100) 
+        const subscriptionGrowthPercent = subscriptionsLastMonth > 0
+            ? Math.round(((subscriptionsThisMonth - subscriptionsLastMonth) / subscriptionsLastMonth) * 100)
             : (subscriptionsThisMonth > 0 ? 100 : 0);
 
         // Data/Scraping Stats
         const totalSearches = await Data.countDocuments();
         const searchesThisMonth = await Data.countDocuments({ createdAt: { $gte: startOfMonth } });
-        const searchesLastMonth = await Data.countDocuments({ 
-            createdAt: { $gte: startOfLastMonth, $lt: startOfMonth } 
+        const searchesLastMonth = await Data.countDocuments({
+            createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }
         });
-        const searchGrowthPercent = searchesLastMonth > 0 
-            ? Math.round(((searchesThisMonth - searchesLastMonth) / searchesLastMonth) * 100) 
+        const searchGrowthPercent = searchesLastMonth > 0
+            ? Math.round(((searchesThisMonth - searchesLastMonth) / searchesLastMonth) * 100)
             : (searchesThisMonth > 0 ? 100 : 0);
 
         // Total records scraped
         const totalRecordsResult = await Data.aggregate([
-            { $project: { recordCount: { $size: "$data" } } },
+            { $project: { recordCount: { $size: "$leads" } } },
             { $group: { _id: null, total: { $sum: "$recordCount" } } }
         ]);
         const totalRecords = totalRecordsResult[0]?.total || 0;
@@ -321,8 +321,8 @@ export const getAdminDashboardData = async (req, res) => {
 
             // User growth
             const totalUsersUpToDate = await User.countDocuments({ createdAt: { $lte: endDate } });
-            const newUsersInMonth = await User.countDocuments({ 
-                createdAt: { $gte: startDate, $lte: endDate } 
+            const newUsersInMonth = await User.countDocuments({
+                createdAt: { $gte: startDate, $lte: endDate }
             });
             userGrowth.push({ name: monthName, users: totalUsersUpToDate, newUsers: newUsersInMonth });
 
@@ -332,22 +332,22 @@ export const getAdminDashboardData = async (req, res) => {
                 { $group: { _id: null, total: { $sum: "$amount" } } }
             ]);
             const monthRevenue = revenueInMonth[0]?.total || 0;
-            revenue.push({ 
-                name: monthName, 
+            revenue.push({
+                name: monthName,
                 revenue: monthRevenue
             });
 
             // Activity - use Data model for scraping activity
-            const searches = await Data.countDocuments({ 
-                createdAt: { $gte: startDate, $lte: endDate } 
+            const searches = await Data.countDocuments({
+                createdAt: { $gte: startDate, $lte: endDate }
             });
             const recordsInMonth = await Data.aggregate([
                 { $match: { createdAt: { $gte: startDate, $lte: endDate } } },
-                { $project: { recordCount: { $size: "$data" } } },
+                { $project: { recordCount: { $size: "$leads" } } },
                 { $group: { _id: null, total: { $sum: "$recordCount" } } }
             ]);
-            activity.push({ 
-                name: monthName, 
+            activity.push({
+                name: monthName,
                 searches: searches,
                 records: recordsInMonth[0]?.total || 0
             });
@@ -411,7 +411,7 @@ export const getUserDetailsStats = async (req, res) => {
     try {
         const { userId } = req.params;
         const { period = 'monthly' } = req.query;
-        
+
         // Get user basic info
         const user = await User.findById(userId).select('-password');
         if (!user) {
@@ -430,7 +430,7 @@ export const getUserDetailsStats = async (req, res) => {
         const totalSubscriptions = await Subscription.countDocuments({ user: userId });
         const activeSubscription = await Subscription.findOne({ user: userId, status: 'Active' })
             .populate('package', 'name price interval features');
-        
+
         // Total amount spent by user
         const totalSpentResult = await Subscription.aggregate([
             { $match: { user: user._id } },
@@ -440,15 +440,15 @@ export const getUserDetailsStats = async (req, res) => {
 
         // User's scraping/search stats
         const totalSearches = await Data.countDocuments({ userId: userId });
-        const searchesThisMonth = await Data.countDocuments({ 
-            userId: userId, 
-            createdAt: { $gte: startOfMonth } 
+        const searchesThisMonth = await Data.countDocuments({
+            userId: userId,
+            createdAt: { $gte: startOfMonth }
         });
 
         // Total records scraped by user
         const totalRecordsResult = await Data.aggregate([
             { $match: { userId: user._id } },
-            { $project: { recordCount: { $size: "$data" } } },
+            { $project: { recordCount: { $size: "$leads" } } },
             { $group: { _id: null, total: { $sum: "$recordCount" } } }
         ]);
         const totalRecords = totalRecordsResult[0]?.total || 0;
@@ -484,14 +484,14 @@ export const getUserDetailsStats = async (req, res) => {
             const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
             const monthName = startDate.toLocaleString('default', { month: 'short' });
 
-            const searches = await Data.countDocuments({ 
-                userId: userId, 
-                createdAt: { $gte: startDate, $lte: endDate } 
+            const searches = await Data.countDocuments({
+                userId: userId,
+                createdAt: { $gte: startDate, $lte: endDate }
             });
 
             const recordsResult = await Data.aggregate([
                 { $match: { userId: user._id, createdAt: { $gte: startDate, $lte: endDate } } },
-                { $project: { recordCount: { $size: "$data" } } },
+                { $project: { recordCount: { $size: "$leads" } } },
                 { $group: { _id: null, total: { $sum: "$recordCount" } } }
             ]);
 
@@ -504,14 +504,14 @@ export const getUserDetailsStats = async (req, res) => {
 
         // Recent searches
         const recentSearches = await Data.find({ userId: userId })
-            .select('searchString createdAt data')
+            .select('searchString createdAt leads')
             .sort({ createdAt: -1 })
             .limit(5);
 
         const recentSearchesFormatted = recentSearches.map(search => ({
             _id: search._id,
             searchString: search.searchString,
-            recordCount: search.data?.length || 0,
+            recordCount: search.leads?.length || 0,
             createdAt: search.createdAt
         }));
 

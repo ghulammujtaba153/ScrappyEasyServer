@@ -13,7 +13,7 @@ import whatsAppAccountRouter from "./whatsAppAccountRoutes.js";
 import packageRouter from "./packageRoutes.js";
 import subscriptionRouter from "./subscriptionRoutes.js";
 import wappRouter from "./whatsapp.routes.js";
-import wappMessageRouter from "./message.routes.js";
+import wappMessageRouter from "./messageRoutes.js";
 import automateMessageRouter from "./automateMessageRoutes.js";
 import callRouter from "./callRoutes.js";
 import coldCallRouter from "./coldCallRoutes.js";

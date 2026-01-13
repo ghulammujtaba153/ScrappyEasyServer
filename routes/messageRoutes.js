@@ -1,6 +1,6 @@
 import { Router } from 'express';
 const wappMessageRouter = Router();
-import messageController from '../controller/message.controller.js';
+import messageController from '../controller/messageController.js';
 
 // Message sending (auto session management)
 wappMessageRouter.post('/send', messageController.sendDirectMessage);
