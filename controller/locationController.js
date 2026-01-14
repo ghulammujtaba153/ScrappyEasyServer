@@ -1,6 +1,7 @@
 import xlsx from "xlsx";
 import path from "path";
 import { fileURLToPath } from "url";
+import Data from "../models/dataSchema.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,9 +27,9 @@ const haversineDistance = (lat1, lng1, lat2, lng2) => {
     const a =
         Math.sin(dLat / 2) * Math.sin(dLat / 2) +
         Math.cos((lat1 * Math.PI) / 180) *
-            Math.cos((lat2 * Math.PI) / 180) *
-            Math.sin(dLng / 2) *
-            Math.sin(dLng / 2);
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
 };
@@ -222,18 +223,18 @@ export const find_city_neighbors = async (req, res) => {
             message: "Neighboring cities retrieved successfully",
             target: targetCity
                 ? {
-                      city: targetCity.city,
-                      city_ascii: targetCity.city_ascii,
-                      lat: targetCity.lat,
-                      lng: targetCity.lng,
-                      country: targetCity.country,
-                      iso2: targetCity.iso2,
-                      iso3: targetCity.iso3,
-                      admin_name: targetCity.admin_name,
-                      capital: targetCity.capital,
-                      population: targetCity.population,
-                      id: targetCity.id,
-                  }
+                    city: targetCity.city,
+                    city_ascii: targetCity.city_ascii,
+                    lat: targetCity.lat,
+                    lng: targetCity.lng,
+                    country: targetCity.country,
+                    iso2: targetCity.iso2,
+                    iso3: targetCity.iso3,
+                    admin_name: targetCity.admin_name,
+                    capital: targetCity.capital,
+                    population: targetCity.population,
+                    id: targetCity.id,
+                }
                 : { lat: targetLat, lng: targetLng },
             count: neighbors.length,
             neighbors,
@@ -327,6 +328,121 @@ export const find_nearby_cities = async (req, res) => {
             message: "Internal server error",
             error: error.message,
         });
+    }
+};
+
+/**
+ * Smart recommendation engine that handles both city and state queries.
+ * If a state is detected, it suggests cities within that state that the user hasn't scraped much data for.
+ * 
+ * Query Parameters:
+ * - q: The search query (e.g., "Texas" or "Austin")
+ * - userId: The user ID to check against existing scraped data
+ * - limit: Max number of results (default 10)
+ */
+export const get_smart_recommendations = async (req, res) => {
+    try {
+        const { q, userId, limit = 10 } = req.query;
+
+        if (!q) {
+            return res.status(400).json({ success: false, message: "Query parameter 'q' is required" });
+        }
+
+        const queryLower = q.toLowerCase().trim();
+
+        // 1. Check if the query matches a State (admin_name)
+        const isState = citiesData.some(c => c.admin_name && c.admin_name.toLowerCase() === queryLower);
+
+        let targetCities = [];
+
+        if (isState) {
+            // Get all cities in this state
+            targetCities = citiesData.filter(c => c.admin_name && c.admin_name.toLowerCase() === queryLower);
+
+            // If user is logged in, prioritize cities they HAVEN'T explored
+            if (userId) {
+                const userData = await Data.find({ userId }).select('searchString');
+                const scrapedQueries = userData.map(d => d.searchString.toLowerCase());
+
+                // Calculate a "score" for each city
+                targetCities = targetCities.map(city => {
+                    // Check how many times this city name appears in user's search history
+                    const scrapeCount = scrapedQueries.filter(sq => sq.includes(city.city.toLowerCase())).length;
+                    return { ...city, scrapeCount };
+                });
+
+                // Sort by scrapeCount ascending (less scraped first), then by population descending
+                targetCities.sort((a, b) => {
+                    if (a.scrapeCount !== b.scrapeCount) {
+                        return a.scrapeCount - b.scrapeCount;
+                    }
+                    return (b.population || 0) - (a.population || 0);
+                });
+            } else {
+                // Not logged in, just sort by population
+                targetCities.sort((a, b) => (b.population || 0) - (a.population || 0));
+            }
+
+            return res.status(200).json({
+                success: true,
+                type: "state",
+                state: q,
+                count: Math.min(targetCities.length, limit),
+                neighbors: targetCities.slice(0, limit).map(c => ({
+                    city: c.city,
+                    lat: c.lat,
+                    lng: c.lng,
+                    admin_name: c.admin_name,
+                    population: c.population,
+                    scraped_before: c.scrapeCount > 0
+                }))
+            });
+        }
+
+        // 2. If not a state, try to find the city and its neighbors
+        const city = citiesData.find(c =>
+            c.city?.toLowerCase() === queryLower ||
+            c.city_ascii?.toLowerCase() === queryLower
+        );
+
+        if (city) {
+            const lat = parseFloat(city.lat);
+            const lng = parseFloat(city.lng);
+
+            // Get neighbors within 150km, sorted by distance
+            let neighbors = citiesData
+                .filter(c => c.id !== city.id)
+                .map(c => {
+                    const dist = haversineDistance(lat, lng, parseFloat(c.lat), parseFloat(c.lng));
+                    return { ...c, distance_km: Math.round(dist * 100) / 100 };
+                })
+                .filter(c => c.distance_km <= 150)
+                .sort((a, b) => a.distance_km - b.distance_km);
+
+            return res.status(200).json({
+                success: true,
+                type: "city",
+                city: city.city,
+                count: Math.min(neighbors.length, limit),
+                neighbors: neighbors.slice(0, limit).map(c => ({
+                    city: c.city,
+                    lat: c.lat,
+                    lng: c.lng,
+                    admin_name: c.admin_name,
+                    distance_km: c.distance_km
+                }))
+            });
+        }
+
+        // 3. Fallback if no direct match found
+        return res.status(404).json({
+            success: false,
+            message: `Neither city nor state matching "${q}" was found.`,
+        });
+
+    } catch (error) {
+        console.error("Error in get_smart_recommendations:", error);
+        res.status(500).json({ success: false, message: "Internal server error", error: error.message });
     }
 };
 

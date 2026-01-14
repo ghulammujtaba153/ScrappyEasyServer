@@ -28,6 +28,7 @@ import qualifiedLeadsRouter from "./qualifiedLeadsRoutes.js";
 import teamRouter from "./teamRoutes.js";
 import teamDataRouter from "./teamDataRoutes.js";
 import notificationRouter from "./notificationRoutes.js";
+import trialRouter from "./trialRoutes.js";
 
 const router = express.Router();
 
@@ -60,5 +61,6 @@ router.use("/qualified-leads", qualifiedLeadsRouter);
 router.use("/team", teamRouter);
 router.use("/team-data", teamDataRouter);
 router.use("/notifications", notificationRouter);
+router.use("/trial", trialRouter);
 
 export default router;

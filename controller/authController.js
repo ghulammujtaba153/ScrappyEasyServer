@@ -58,17 +58,39 @@ export const updateUser = async (req, res) => {
 
 export const verifyToken = async (req, res) => {
     try {
-        const token = req.headers.authorization.split(" ")[1];
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({ error: "Authorization header missing or invalid" });
+        }
+
+        const token = authHeader.split(" ")[1];
+        if (!token) {
+            return res.status(401).json({ error: "Token missing" });
+        }
+
+        if (!process.env.JWT_SECRET) {
+            console.error("CRITICAL: JWT_SECRET is not defined in environment variables");
+            return res.status(500).json({ error: "Server configuration error: JWT_SECRET missing" });
+        }
+
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        
-        // Fetch user from database to return complete user data
+        console.log("Token decoded successfully for user ID:", decoded.id);
+
         const user = await User.findById(decoded.id).select("-password");
         if (!user) {
+            console.warn("User ID from token not found in DB:", decoded.id);
             return res.status(404).json({ error: "User not found" });
         }
-        
+
         res.status(200).json({ decoded, user });
     } catch (error) {
+        console.error("Token verification error:", error);
+        if (error.name === "TokenExpiredError") {
+            return res.status(401).json({ error: "Token expired" });
+        }
+        if (error.name === "JsonWebTokenError") {
+            return res.status(401).json({ error: "Invalid token" });
+        }
         res.status(500).json({ error: error.message });
     }
 }
@@ -162,9 +184,9 @@ export const inviteUser = async (req, res) => {
 
         if (!senderEmail) {
             console.error("BREVO_SENDER_EMAIL not configured");
-            return res.status(500).json({ 
+            return res.status(500).json({
                 message: "Email service not configured. User created but invitation email not sent.",
-                user 
+                user
             });
         }
 
@@ -215,9 +237,9 @@ export const inviteUser = async (req, res) => {
         res.status(201).json({ user, message: "User invited successfully. Invitation email sent!" });
     } catch (error) {
         console.error("Invite error:", error);
-        res.status(500).json({ 
-            message: "Failed to invite user", 
-            error: error.message 
+        res.status(500).json({
+            message: "Failed to invite user",
+            error: error.message
         });
     }
 }
