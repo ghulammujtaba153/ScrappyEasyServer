@@ -17,10 +17,12 @@ const teamDataSchema = new mongoose.Schema({
     description: {
         type: String,
     },
-    phone: {
-        type: String,
-        required: true,
-    },
+    phone: [
+        {
+            title: String,
+            number: String,
+        }
+    ],
     link: {
         type: String,
     },
