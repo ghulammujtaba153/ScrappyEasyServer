@@ -23,6 +23,14 @@ const teamDataSchema = new mongoose.Schema({
             number: String,
         }
     ],
+    whatsappStatus: {
+        type: String,
+        enum: ["not-checked", "verified", "not-verified"],
+        default: "not-checked",
+    },
+    isWhatsapp: {
+        type: Boolean,
+    },
     link: {
         type: String,
     },

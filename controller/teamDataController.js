@@ -137,3 +137,78 @@ export const deleteTeamData = async(req, res) => {
         res.status(400).json({ error: error.message });
     }
 }
+
+export const bulkUpdateTeamData = async(req, res) => {
+    try {
+        const { updates } = req.body;
+
+        // Validate input
+        if (!Array.isArray(updates) || updates.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'updates must be a non-empty array'
+            });
+        }
+
+        // Validate each update has required fields
+        for (const update of updates) {
+            if (!update.id || !update.data) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Each update must have "id" and "data" fields'
+                });
+            }
+        }
+
+        const results = [];
+        const errors = [];
+
+        // Update each record
+        for (const update of updates) {
+            try {
+                const updatedData = await TeamData.findByIdAndUpdate(
+                    update.id,
+                    update.data,
+                    { new: true }
+                );
+
+                if (updatedData) {
+                    results.push({
+                        id: update.id,
+                        success: true,
+                        data: updatedData
+                    });
+                } else {
+                    errors.push({
+                        id: update.id,
+                        success: false,
+                        error: 'Record not found'
+                    });
+                }
+            } catch (error) {
+                errors.push({
+                    id: update.id,
+                    success: false,
+                    error: error.message
+                });
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Updated ${results.length} records. ${errors.length} failed.`,
+            data: {
+                total: updates.length,
+                successful: results.length,
+                failed: errors.length,
+                results,
+                errors: errors.length > 0 ? errors : undefined
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+}
