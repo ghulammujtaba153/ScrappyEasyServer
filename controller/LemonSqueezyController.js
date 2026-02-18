@@ -22,6 +22,7 @@ export const createCheckout = async (req, res) => {
                     type: 'checkouts',
                     attributes: {
                         checkout_data: {
+                            redirect_url: process.env.FRONTEND_URL || 'http://localhost:5173',
                             custom: {
                                 user_id: userId,
                                 variant_id: variantId
@@ -72,12 +73,16 @@ export const createCheckout = async (req, res) => {
  */
 export const LemonSqueezyWebhook = async (req, res) => {
     try {
-        // Verification logic
-        const rawBody = JSON.stringify(req.body);
+        // Verification logic using raw body buffer
         const secret = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET;
         const hmac = crypto.createHmac('sha256', secret);
-        const digest = Buffer.from(hmac.update(rawBody).digest('hex'), 'utf8');
+        const digest = Buffer.from(hmac.update(req.rawBody).digest('hex'), 'utf8');
         const signature = Buffer.from(req.get('X-Signature') || '', 'utf8');
+
+        if (!secret) {
+            console.error('LEMON_SQUEEZY_WEBHOOK_SECRET is not set in .env');
+            return res.status(500).send('Internal Server Error');
+        }
 
         if (digest.length !== signature.length || !crypto.timingSafeEqual(digest, signature)) {
             console.warn('Webhook signature mismatch. Check secret.');
