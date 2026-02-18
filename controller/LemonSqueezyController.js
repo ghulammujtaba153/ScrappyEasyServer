@@ -22,11 +22,13 @@ export const createCheckout = async (req, res) => {
                     type: 'checkouts',
                     attributes: {
                         checkout_data: {
-                            redirect_url: process.env.FRONTEND_URL || 'http://localhost:5173',
                             custom: {
                                 user_id: userId,
                                 variant_id: variantId
                             }
+                        },
+                        product_options: {
+                            redirect_url: process.env.FRONTEND_URL || 'http://localhost:5173'
                         }
                     },
                     relationships: {
