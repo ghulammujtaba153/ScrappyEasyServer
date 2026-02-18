@@ -2,7 +2,10 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import http from "http";
-
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import fs from 'fs';
+import path from 'path';
 import connectDB from "./database/db.js";
 import router from "./routes/index.js";
 import whatsappService from "./services/whatsapp.service.js";
@@ -16,6 +19,9 @@ dotenv.config();
 ====================== */
 const app = express();
 const server = http.createServer(app);
+app.use(helmet());
+app.set("trust proxy", 1);
+
 
 /* ======================
    MIDDLEWARE
@@ -30,8 +36,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use("/screenshots", express.static("public/screenshots"));
 
-import fs from 'fs';
-import path from 'path';
+
 const screenshotsDir = path.join(process.cwd(), 'public/screenshots');
 if (!fs.existsSync(screenshotsDir)) {
    fs.mkdirSync(screenshotsDir, { recursive: true });
@@ -46,6 +51,40 @@ connectDB();
    SOCKET.IO SETUP
 ====================== */
 const io = setupSocketIO(server);
+
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per window
+  message: {
+    success: false,
+    message: "Too many requests from this IP, please try again after 15 minutes."
+  }
+});
+
+app.use("/api", limiter);
+
+/* ======================
+   HEALTH CHECK ROUTES
+====================== */
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    success: true,
+    status: "OK",
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || "development",
+  });
+});
+
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    success: true,
+    service: "API",
+    status: "Healthy",
+    uptime: process.uptime(),
+  });
+});
 
 /* ======================
    ROUTES

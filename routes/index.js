@@ -29,6 +29,8 @@ import teamRouter from "./teamRoutes.js";
 import teamDataRouter from "./teamDataRoutes.js";
 import notificationRouter from "./notificationRoutes.js";
 import trialRouter from "./trialRoutes.js";
+import lemonSqueezyRouter from "./lemonSqueezyRoutes.js";
+
 
 const router = express.Router();
 
@@ -62,5 +64,7 @@ router.use("/team", teamRouter);
 router.use("/team-data", teamDataRouter);
 router.use("/notifications", notificationRouter);
 router.use("/trial", trialRouter);
+router.use("/lemon-squeezy", lemonSqueezyRouter);
+
 
 export default router;

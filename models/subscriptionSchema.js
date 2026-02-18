@@ -9,7 +9,7 @@ const subscriptionSchema = new mongoose.Schema({
     package: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Package",
-        required: true
+        required: false
     },
     amount: {
         type: Number,
@@ -41,6 +41,19 @@ const subscriptionSchema = new mongoose.Schema({
     isOneTime: {
         type: Boolean,
         default: false
+    },
+    lsOrderId: {
+        type: String,
+        unique: true,
+        sparse: true
+    },
+    lsSubscriptionId: {
+        type: String,
+        unique: true,
+        sparse: true
+    },
+    lsVariantId: {
+        type: String,
     }
 }, { timestamps: true });
 

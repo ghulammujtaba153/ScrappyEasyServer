@@ -7,6 +7,17 @@ const NotesSchema = new mongoose.Schema({
     },
     content: {
         type: String,
+    },
+    title: {
+        type: String,
+    },
+    isPinned: {
+        type: Boolean,
+        default: false
+    },
+    color: {
+        type: String,
+        default: "#ffffff"
     }
 }, {
     timestamps: true

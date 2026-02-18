@@ -19,7 +19,7 @@ export const createNote = async (req, res) => {
 
 export const getNotes = async (req, res) => {
     try {
-        const notes = await Notes.find({ dataId: req.params.id });
+        const notes = await Notes.find({ dataId: req.params.id }).sort({ isPinned: -1, createdAt: -1 });
         res.status(200).json(notes);
     } catch (error) {
         res.status(500).json({

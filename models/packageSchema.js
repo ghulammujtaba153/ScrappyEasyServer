@@ -29,6 +29,9 @@ const packageSchema = new mongoose.Schema({
     active: {
         type: Boolean,
         default: true
+    },
+    lsVariantId: {
+        type: String,
     }
 }, { timestamps: true });
 
