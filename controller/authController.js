@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import SibApiV3Sdk from "sib-api-v3-sdk";
 import { emailApi } from "../utils/mailer.js";
+import Subscription from "../models/subscriptionSchema.js";
 
 
 export const register = async (req, res) => {
@@ -81,6 +82,13 @@ export const verifyToken = async (req, res) => {
             console.warn("User ID from token not found in DB:", decoded.id);
             return res.status(404).json({ error: "User not found" });
         }
+        const subscription = await Subscription.findOne({ user: decoded.id });
+        if (!subscription) {
+            user.isSubscription = false;
+        } else {
+            user.isSubscription = true;
+        }
+
 
         res.status(200).json({ decoded, user });
     } catch (error) {
