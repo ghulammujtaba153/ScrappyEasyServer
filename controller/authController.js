@@ -60,48 +60,52 @@ export const updateUser = async (req, res) => {
 export const verifyToken = async (req, res) => {
     try {
         const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+
+        if (!authHeader?.startsWith("Bearer ")) {
             return res.status(401).json({ error: "Authorization header missing or invalid" });
         }
 
         const token = authHeader.split(" ")[1];
-        if (!token) {
-            return res.status(401).json({ error: "Token missing" });
-        }
 
         if (!process.env.JWT_SECRET) {
-            console.error("CRITICAL: JWT_SECRET is not defined in environment variables");
-            return res.status(500).json({ error: "Server configuration error: JWT_SECRET missing" });
+            console.error("CRITICAL: JWT_SECRET is not defined");
+            return res.status(500).json({ error: "Server configuration error" });
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        console.log("Token decoded successfully for user ID:", decoded.id);
 
-        const user = await User.findById(decoded.id).select("-password");
+        const user = await User.findById(decoded.id)
+            .select("-password")
+            .lean();
+
         if (!user) {
-            console.warn("User ID from token not found in DB:", decoded.id);
             return res.status(404).json({ error: "User not found" });
         }
-        const subscription = await Subscription.findOne({ user: decoded.id });
-        if (!subscription) {
-            user.isSubscription = false;
-        } else {
-            user.isSubscription = true;
-        }
 
+        const subscription = await Subscription.exists({ user: decoded.id });
 
-        res.status(200).json({ decoded, user });
+        return res.status(200).json({
+            user: {
+                ...user,
+                isSubscription: !!subscription
+            }
+        });
+
     } catch (error) {
-        console.error("Token verification error:", error);
+        console.error("Token verification error:", error.message);
+
         if (error.name === "TokenExpiredError") {
             return res.status(401).json({ error: "Token expired" });
         }
+
         if (error.name === "JsonWebTokenError") {
             return res.status(401).json({ error: "Invalid token" });
         }
-        res.status(500).json({ error: error.message });
+
+        return res.status(500).json({ error: "Internal server error" });
     }
-}
+};
+
 
 export const getUserProfile = async (req, res) => {
     try {
