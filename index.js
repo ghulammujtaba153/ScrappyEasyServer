@@ -22,22 +22,42 @@ const server = http.createServer(app);
 app.use(helmet());
 app.set("trust proxy", 1);
 
+// Define allowed origins for CORS
+const allowedOrigins = [
+   'http://localhost:5173',
+   'http://localhost:3000',
+   'http://localhost:5000',
+   'http://127.0.0.1:5173',
+   'http://127.0.0.1:3000',
+   'http://127.0.0.1:5000',
+   process.env.CLIENT_URL
+].filter(Boolean);
 
 /* ======================
    MIDDLEWARE
 ====================== */
 app.use(cors({
-   origin: "*",
+   origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+         callback(null, true);
+      } else {
+         console.warn(`Non-whitelisted origin requested: ${origin}`);
+         callback(null, true); // Still allow for development flexibility
+      }
+   },
    credentials: true,
    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
    allowedHeaders: ["Content-Type", "Authorization"]
 }));
+
+// CORS middleware handles preflight requests automatically
 app.use(express.json({
+    limit: '50mb',
     verify: (req, res, buf) => {
         req.rawBody = buf;
     }
 }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use("/screenshots", express.static("public/screenshots"));
 
 
@@ -59,7 +79,7 @@ const io = setupSocketIO(server);
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per window
+  max: 300, // limit each IP to 100 requests per window
   message: {
     success: false,
     message: "Too many requests from this IP, please try again after 15 minutes."

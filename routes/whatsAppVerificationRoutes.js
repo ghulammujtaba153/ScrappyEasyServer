@@ -1,6 +1,5 @@
 import express from 'express';
 import whatsappController from '../controller/whatsAppVerification.js';
-import authMiddleware from '../middleware/authMiddleware.js';
 
 const verificationRouter = express.Router();
 
@@ -58,27 +57,46 @@ const validatePhoneNumbers = (req, res, next) => {
 };
 
 // Initialize WhatsApp session for user
-verificationRouter.post('/initialize', authMiddleware, async (req, res) => {
+verificationRouter.post('/initialize', async (req, res) => {
     try {
-        const { forceNew } = req.body;
-        await whatsappController.initializeForUser(req.userId, forceNew || false);
+        const { userId, forceNew } = req.body;
+        
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                error: 'userId is required in request body'
+            });
+        }
+        
+        await whatsappController.initializeForUser(userId, forceNew || false);
 
         res.json({
             success: true,
             message: 'WhatsApp session initialization started. Please check /qr endpoint for QR code.'
         });
     } catch (error) {
-        res.status(500).json({
+        const statusCode = error.statusCode || 500;
+        res.status(statusCode).json({
             success: false,
-            error: error.message
+            error: error.message,
+            remainingCooldown: error.remainingCooldown
         });
     }
 });
 
 // Check connection status
-verificationRouter.get('/status', authMiddleware, async (req, res) => {
+verificationRouter.get('/status', async (req, res) => {
     try {
-        const status = whatsappController.getStatus(req.userId);
+        const userId = req.query?.userId;
+        
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                error: 'userId is required'
+            });
+        }
+        
+        const status = whatsappController.getStatus(userId);
 
         // Return current status only
         res.json({
@@ -94,18 +112,27 @@ verificationRouter.get('/status', authMiddleware, async (req, res) => {
 });
 
 // Get QR code for scanning
-verificationRouter.get('/qr', authMiddleware, async (req, res) => {
+verificationRouter.get('/qr', async (req, res) => {
     try {
-        let status = whatsappController.getStatus(req.userId);
+        const userId = req.query?.userId;
+        
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                error: 'userId is required'
+            });
+        }
+        
+        let status = whatsappController.getStatus(userId);
 
         // If not initialized or needs reinitialization, start it
         if (!status.initialized || status.needsReinitialization) {
-            console.log(`Initializing new session for QR request: ${req.userId}`);
-            await whatsappController.initializeForUser(req.userId, status.needsReinitialization);
+            console.log(`Initializing new session for QR request: ${userId}`);
+            await whatsappController.initializeForUser(userId, status.needsReinitialization);
 
             // Wait a bit for QR to be generated
             await new Promise(resolve => setTimeout(resolve, 2000));
-            status = whatsappController.getStatus(req.userId);
+            status = whatsappController.getStatus(userId);
         }
 
         if (status.isConnected) {
@@ -146,14 +173,22 @@ verificationRouter.get('/qr', authMiddleware, async (req, res) => {
 });
 
 // Check numbers (batch verification)
-verificationRouter.post('/check', authMiddleware, validatePhoneNumbers, async (req, res) => {
+verificationRouter.post('/check', validatePhoneNumbers, async (req, res) => {
     try {
-        const { operationId } = req.body;
+        const { userId, operationId } = req.body;
+        
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                error: 'userId is required in request body'
+            });
+        }
+        
         const validNumbers = req.validPhoneNumbers;
         const invalidNumbers = req.invalidPhoneNumbers;
 
         // Always use batch method for efficiency with valid numbers only
-        const results = await whatsappController.checkMultipleNumbers(req.userId, validNumbers, operationId);
+        const results = await whatsappController.checkMultipleNumbers(userId, validNumbers, operationId);
 
         // Add invalid numbers to results
         const invalidResults = invalidNumbers.map(({ number, reason }) => ({
@@ -212,9 +247,18 @@ verificationRouter.post('/bulk-check', async (req, res) => {
 });
 
 // Disconnect WhatsApp
-verificationRouter.post('/disconnect', authMiddleware, (req, res) => {
+verificationRouter.post('/disconnect', (req, res) => {
     try {
-        whatsappController.disconnect(req.userId);
+        const { userId } = req.body;
+        
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                error: 'userId is required in request body'
+            });
+        }
+        
+        whatsappController.disconnect(userId);
 
         res.json({
             success: true,

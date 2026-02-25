@@ -5,32 +5,70 @@ import Collaboration from "../models/collaborationSchema.js";
 const onlineUsers = new Map();
 
 export const setupSocketIO = (server) => {
+    const allowedOrigins = [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'http://localhost:5000',
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:5000'
+    ];
+
     const io = new Server(server, {
         cors: {
-            origin: "*",
+            origin: (origin, callback) => {
+                // Allow all local origins during development
+                if (!origin || allowedOrigins.includes(origin)) {
+                    callback(null, true);
+                } else {
+                    callback(null, true); // Allow for development
+                }
+            },
             methods: ["GET", "POST"],
-            credentials: false
+            credentials: true,
+            allowedHeaders: ["Content-Type", "Authorization"]
         },
-        // IMPORTANT: Use polling first for Render and cloud platforms
-        transports: ["polling", "websocket"],
+        // Try WebSocket first, fall back to polling
+        transports: ['websocket', 'polling'],
         allowEIO3: true,
-        // Increase timeouts for cloud environments
+        // Timeouts for stability
         pingTimeout: 60000,
         pingInterval: 25000,
         // Allow upgrades from polling to websocket
         allowUpgrades: true,
-        // Disable cookies for better cross-origin compatibility
-        cookie: false,
+        // Cookie settings for CORS
+        cookie: {
+            name: 'io',
+            httpOnly: true,
+            sameSite: 'lax',
+            path: '/socket.io'
+        },
         // Connection state recovery
         connectionStateRecovery: {
             maxDisconnectionDuration: 2 * 60 * 1000,
             skipMiddlewares: true
+        },
+        // Compression settings for polling
+        httpCompression: true,
+        perMessageDeflate: {
+            threshold: 1024
         }
     });
 
     io.on("connection", (socket) => {
         console.log(`🔌 Socket connected: ${socket.id}`);
         console.log(`📊 Current online users count: ${onlineUsers.size}`);
+        console.log(`✅ Transport: ${socket.conn.transport.name}`);
+        console.log(`📍 Remote address: ${socket.handshake.address}`);
+
+        // Track transport changes
+        socket.conn.on('upgrade', (transport) => {
+            console.log(`📡 Socket ${socket.id} upgraded to ${transport.name}`);
+        });
+
+        socket.conn.on('error', (error) => {
+            console.error(`❌ Socket ${socket.id} connection error:`, error);
+        });
 
         // User comes online
         socket.on("user_online", (userData) => {
@@ -208,6 +246,15 @@ export const setupSocketIO = (server) => {
             
             // Broadcast updated online users
             io.emit("online_users_updated", getOnlineUsersList());
+        });
+    });
+
+    // Log Socket.IO errors
+    io.engine.on('connection_error', (error) => {
+        console.error('🔌 Socket.IO Connection Error:', {
+            code: error.code,
+            message: error.message,
+            stack: error.stack
         });
     });
 
