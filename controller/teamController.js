@@ -4,6 +4,10 @@ import { sendNotification } from "./notificationController.js";
 
 export const createTeam = async (req, res) => {
     try {
+        if (req.body.members && req.body.members.length > 2) {
+            return res.status(400).json({ message: "A maximum of 2 sub-accounts is allowed per team." });
+        }
+
         const team = new Team(req.body);
         await team.save();
         
@@ -69,8 +73,21 @@ export const updateTeam = async (req, res) => {
     try {
         // Get the old team to compare members
         const oldTeam = await Team.findById(req.params.id);
+        
+        if (!oldTeam) {
+            return res.status(404).json({ message: "Team not found" });
+        }
+        
+        if (oldTeam.owner.toString() !== req.userId.toString()) {
+            return res.status(403).json({ message: "Not authorized to update this team" });
+        }
+        
         const oldMembers = oldTeam?.members?.map(m => m.toString()) || [];
         const newMembers = req.body.members || [];
+        
+        if (newMembers.length > 2) {
+            return res.status(400).json({ message: "A maximum of 2 sub-accounts is allowed per team." });
+        }
         
         const team = await Team.findByIdAndUpdate(req.params.id, req.body, { new: true });
         
@@ -122,6 +139,16 @@ export const updateTeam = async (req, res) => {
 
 export const deleteTeam = async (req, res) => {
     try {
+        const team = await Team.findById(req.params.id);
+        
+        if (!team) {
+            return res.status(404).json({ message: "Team not found" });
+        }
+        
+        if (team.owner.toString() !== req.userId.toString()) {
+            return res.status(403).json({ message: "Not authorized to delete this team" });
+        }
+        
         await Team.findByIdAndDelete(req.params.id);
         res.status(200).json({ message: "Team deleted successfully" });
     } catch (error) {

@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import SibApiV3Sdk from "sib-api-v3-sdk";
 import { emailApi } from "../utils/mailer.js";
 import Subscription from "../models/subscriptionSchema.js";
+import Team from "../models/teamSchema.js";
 
 
 export const register = async (req, res) => {
@@ -82,12 +83,24 @@ export const verifyToken = async (req, res) => {
             return res.status(404).json({ error: "User not found" });
         }
 
-        const subscription = await Subscription.exists({ user: decoded.id });
+        // Check personal subscription first
+        const personalSub = await Subscription.exists({ user: decoded.id });
+
+        let isSubscription = !!personalSub;
+
+        // If no personal subscription, check if user is a member of a team whose owner is subscribed
+        if (!isSubscription) {
+            const teamWithSubscribedOwner = await Team.findOne({ members: decoded.id }).populate('owner').lean();
+            if (teamWithSubscribedOwner?.owner) {
+                const ownerSub = await Subscription.exists({ user: teamWithSubscribedOwner.owner._id });
+                isSubscription = !!ownerSub;
+            }
+        }
 
         return res.status(200).json({
             user: {
                 ...user,
-                isSubscription: !!subscription
+                isSubscription
             }
         });
 

@@ -11,7 +11,13 @@ import {
 } from '../controller/qualifiedLeadsController.js';
 
 
+import { authMiddleware } from '../middleware/authMiddleware.js';
+import { resolveTeamContext } from '../middleware/contextMiddleware.js';
+
 const qualifiedLeadsRouter = express.Router();
+
+qualifiedLeadsRouter.use(authMiddleware);
+qualifiedLeadsRouter.use(resolveTeamContext);
 
 qualifiedLeadsRouter.post('/create', createQualifiedLead);
 qualifiedLeadsRouter.get('/get/:userId', getQualifiedLeads);

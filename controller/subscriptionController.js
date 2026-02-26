@@ -1,11 +1,13 @@
 import Subscription from "../models/subscriptionSchema.js";
 import User from "../models/userSchema.js";
 import Package from "../models/packageSchema.js";
+import Team from "../models/teamSchema.js";
 
 export const getUserSubscription = async (req, res) => {
     try {
         const userId = req.params.id;
         
+        // 1. Check user's own subscription first
         const subscription = await Subscription.findOne({ 
             user: userId,
             status: 'Active'
@@ -13,23 +15,53 @@ export const getUserSubscription = async (req, res) => {
         .populate('package', 'name price interval features description')
         .sort({ createdAt: -1 });
 
-        if (!subscription) {
-            return res.status(200).json({ subscription: null });
+        if (subscription) {
+            return res.status(200).json({ 
+                subscription: {
+                    id: subscription._id,
+                    packageId: subscription.package?._id,
+                    packageName: subscription.package?.name,
+                    amount: subscription.amount,
+                    status: subscription.status,
+                    startDate: subscription.startDate,
+                    endDate: subscription.endDate,
+                    isOneTime: subscription.isOneTime,
+                    package: subscription.package
+                }
+            });
         }
 
-        res.status(200).json({ 
-            subscription: {
-                id: subscription._id,
-                packageId: subscription.package?._id,
-                packageName: subscription.package?.name,
-                amount: subscription.amount,
-                status: subscription.status,
-                startDate: subscription.startDate,
-                endDate: subscription.endDate,
-                isOneTime: subscription.isOneTime,
-                package: subscription.package
+        // 2. No personal subscription — check if user is a member of a team with a subscribed owner
+        const teams = await Team.find({ members: userId });
+        
+        for (const team of teams) {
+            const ownerSubscription = await Subscription.findOne({
+                user: team.owner,
+                status: 'Active'
+            })
+            .populate('package', 'name price interval features description')
+            .sort({ createdAt: -1 });
+
+            if (ownerSubscription) {
+                return res.status(200).json({
+                    subscription: {
+                        id: ownerSubscription._id,
+                        packageId: ownerSubscription.package?._id,
+                        packageName: ownerSubscription.package?.name,
+                        amount: ownerSubscription.amount,
+                        status: ownerSubscription.status,
+                        startDate: ownerSubscription.startDate,
+                        endDate: ownerSubscription.endDate,
+                        isOneTime: ownerSubscription.isOneTime,
+                        package: ownerSubscription.package,
+                        inheritedFromTeam: team.name
+                    }
+                });
             }
-        });
+        }
+
+        // 3. No subscription found at all
+        return res.status(200).json({ subscription: null });
     } catch (error) {
         res.status(500).json({ message: "Error fetching user subscription", error: error.message });
     }

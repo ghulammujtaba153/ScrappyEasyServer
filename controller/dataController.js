@@ -64,9 +64,10 @@ export const getData = async (req, res) => {
             // Cast userId to ObjectId for proper matching
             let userIdQuery;
             try {
-                userIdQuery = new mongoose.Types.ObjectId(req.params.id);
+                const targetId = req.effectiveUserId || req.params.id;
+                userIdQuery = new mongoose.Types.ObjectId(targetId);
             } catch (e) {
-                userIdQuery = req.params.id;
+                userIdQuery = req.effectiveUserId || req.params.id;
             }
 
             const total = await Data.countDocuments({ userId: userIdQuery });
@@ -346,7 +347,7 @@ export const updateScreenshotData = async (req, res) => {
 // Get all phone numbers with business details for WhatsApp integration
 export const getPhoneNumbers = async (req, res) => {
     try {
-        const { userId } = req.params;
+        const userId = req.effectiveUserId || req.params.userId;
         const { categories, countries, states, cities } = req.query;
 
         // Get all LeadData for the user
@@ -436,7 +437,7 @@ export const getPhoneNumbers = async (req, res) => {
 
 
 export const getAllUniqueStrings = async (req, res) => {
-    const { userId } = req.params;
+    const userId = req.effectiveUserId || req.params.userId;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || '';

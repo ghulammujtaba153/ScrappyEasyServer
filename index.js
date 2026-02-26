@@ -47,7 +47,7 @@ app.use(cors({
    },
    credentials: true,
    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-   allowedHeaders: ["Content-Type", "Authorization"]
+   allowedHeaders: ["Content-Type", "Authorization", "x-active-team"]
 }));
 
 // CORS middleware handles preflight requests automatically
