@@ -9,16 +9,6 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    phone: {
-        type: String,
-        required: true
-    },
-    address: {
-        type: String,
-    },
-    city: {
-        type: String,
-    },
     country: {
         type: String,
         required: true
@@ -27,15 +17,9 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    gender: {
+    aboutUser: {
         type: String,
-        enum: ['male', 'female', 'other'],
-    },
-    dob: {
-        type: Date,
-    },
-    areaOfInterest: {
-        type: String,
+        required: true
     },
     status: {
         type: String,

@@ -71,6 +71,7 @@ export const proxyUrl = async (req, res) => {
             });
         }
 
+
         // Set response headers, copying safe headers from the original response
         res.setHeader('Content-Type', response.headers['content-type'] || 'text/html');
 
@@ -82,10 +83,13 @@ export const proxyUrl = async (req, res) => {
             }
         });
 
-        // CRITICAL: Do NOT copy these security headers (they prevent iframe embedding)
-        // - X-Frame-Options
-        // - Content-Security-Policy
-        // - X-Content-Type-Options
+        // Remove or override security headers to allow iframe embedding
+        res.removeHeader && res.removeHeader('Content-Security-Policy');
+        res.removeHeader && res.removeHeader('X-Frame-Options');
+        res.removeHeader && res.removeHeader('X-Content-Type-Options');
+        // Set CSP to allow all framing (for extra safety)
+        res.setHeader('Content-Security-Policy', "frame-ancestors *; default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;");
+        res.setHeader('X-Frame-Options', 'ALLOWALL');
 
         console.log(`✅ Proxying successful for: ${url}`);
 

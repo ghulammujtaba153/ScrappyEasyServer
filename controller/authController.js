@@ -9,7 +9,7 @@ import Team from "../models/teamSchema.js";
 
 export const register = async (req, res) => {
     try {
-        if (!req.body.name || !req.body.email || !req.body.phone || !req.body.country || !req.body.password) {
+        if (!req.body.name || !req.body.email || !req.body.password) {
             return res.status(400).json({ message: "All fields are required" });
         }
         if (req.body.password.length < 6) {
