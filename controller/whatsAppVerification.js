@@ -513,11 +513,26 @@ class WhatsAppController {
         (num) => num.replace(/\D/g, "") + "@s.whatsapp.net",
       );
       const batchResults = await session.client.onWhatsApp(...cleanNumbers);
+      
+      // Create a map of results for easy lookup since onWhatsApp only returns existing numbers
+      // and not necessarily in the same order.
+      const resultsMap = new Map();
+      if (Array.isArray(batchResults)) {
+        batchResults.forEach(res => {
+          if (res.exists) {
+            // Normalize JID by removing device suffix (e.g., 12345678:0@s.whatsapp.net -> 12345678@s.whatsapp.net)
+            const normalizedJid = res.jid.split(':')[0].split('@')[0] + '@s.whatsapp.net';
+            resultsMap.set(normalizedJid, res);
+          }
+        });
+      }
 
       for (let i = 0; i < phoneNumbers.length; i++) {
         const phoneNumber = phoneNumbers[i];
-        const result = batchResults[i];
-        const isRegistered = result?.exists || false;
+        // Normalize our query JID too (though it shouldn't have : suffix, safety first)
+        const queryJid = cleanNumbers[i].split(':')[0].split('@')[0] + '@s.whatsapp.net';
+        const result = resultsMap.get(queryJid);
+        const isRegistered = !!result;
 
         const verificationData = {
           phoneNumber,
@@ -535,7 +550,6 @@ class WhatsAppController {
         // Store for LeadData update
         verificationsToSave.push({
           phone: phoneNumber,
-          // Extract just digits for matching (phone in DB may have different format)
           phoneDigits: phoneNumber.replace(/\D/g, ""),
           status: isRegistered ? "verified" : "not-verified",
         });

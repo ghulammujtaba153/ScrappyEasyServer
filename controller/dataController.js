@@ -1,6 +1,170 @@
+import csv from "csvtojson";
 import Data from "../models/dataSchema.js"
 import LeadData from "../models/leadDataSchema.js"
 import mongoose from "mongoose";
+// Bulk import leads from CSV
+export const importCSVData = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: "CSV file is required" });
+        }
+
+        // Parse CSV file
+        const leads = await csv().fromString(req.file.buffer.toString());
+
+        // Validate required fields (title is required for uniqueness)
+        const validLeads = leads.filter(item => item.title && item.title.trim() !== "");
+        if (validLeads.length === 0) {
+            return res.status(400).json({ message: "No valid leads found in CSV" });
+        }
+
+        // Get userId and searchString from body or query
+        const userId = req.body.userId || req.query.userId;
+        const searchString = req.body.searchString || req.query.searchString || "CSV Import";
+        const operationId = req.body.operationId || req.query.operationId;
+        
+        if (!userId) {
+            return res.status(400).json({ message: "userId is required" });
+        }
+
+        let operation;
+        let existingTitles = new Set();
+
+        if (operationId) {
+            operation = await Data.findById(operationId).populate('leads');
+            if (operation) {
+                existingTitles = new Set(operation.leads.map(lead => lead.title));
+            } else {
+                return res.status(404).json({ message: "Specified operation not found" });
+            }
+        } else {
+            // Create new operation record
+            operation = await Data.create({
+                userId,
+                searchString,
+                leads: []
+            });
+        }
+
+        // Filter and remove duplicates by title (from both CSV and existing operation)
+        const uniqueLeads = Array.from(new Map(
+            validLeads
+            .filter(item => !existingTitles.has(item.title))
+            .map(item => [item.title, item])
+        ).values());
+
+        if (uniqueLeads.length === 0) {
+            return res.status(200).json({
+                message: "No new unique leads found to import",
+                data: operation,
+                imported: 0
+            });
+        }
+
+        // Create LeadData documents
+        const leadDocs = await Promise.all(uniqueLeads.map(item =>
+            LeadData.create({
+                userId,
+                operationId: operation._id,
+                title: item.title || '',
+                rating: item.rating || '',
+                reviews: item.reviews || '',
+                phone: item.phone || '',
+                address: item.address || '',
+                city: item.city || '',
+                website: item.website || '',
+                googleMapsLink: item.googleMapsLink || '',
+                metadata: item
+            })
+        ));
+
+        // Add new lead references to operation
+        const newLeadIds = leadDocs.map(doc => doc._id);
+        if (operationId) {
+            operation.leads.push(...newLeadIds);
+        } else {
+            operation.leads = newLeadIds;
+        }
+        
+        await operation.save();
+
+        res.status(201).json({
+            message: operationId ? "Leads appended successfully" : "CSV data imported successfully",
+            data: operation,
+            imported: leadDocs.length
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+
+// Update individual lead data
+export const updateLead = async (req, res) => {
+    try {
+        const { leadId } = req.params;
+        const updatedLead = await LeadData.findByIdAndUpdate(
+            leadId,
+            req.body,
+            { new: true }
+        );
+
+        if (!updatedLead) {
+            return res.status(404).json({
+                success: false,
+                message: "Lead not found"
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Lead updated successfully",
+            data: updatedLead
+        });
+    } catch (error) {
+        console.error("Error updating lead:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// Delete individual lead
+export const deleteLead = async (req, res) => {
+    try {
+        const { leadId } = req.params;
+        const lead = await LeadData.findById(leadId);
+
+        if (!lead) {
+            return res.status(404).json({
+                success: false,
+                message: "Lead not found"
+            });
+        }
+
+        // Remove from Data operation record if it exists
+        if (lead.operationId) {
+            await Data.findByIdAndUpdate(lead.operationId, {
+                $pull: { leads: lead._id }
+            });
+        }
+
+        // Delete the lead document
+        await LeadData.findByIdAndDelete(leadId);
+
+        res.status(200).json({
+            success: true,
+            message: "Lead deleted successfully"
+        });
+    } catch (error) {
+        console.error("Error deleting lead:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
 
 
 export const createData = async (req, res) => {

@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 import {
     createData,
     getData,
@@ -13,12 +14,19 @@ import {
     toggleFavorite,
     updateWhatsAppStatus,
     bulkUpdateWhatsAppStatus,
-    updateLeadStatus
+    updateLeadStatus,
+    importCSVData,
+    updateLead,
+    deleteLead
 } from "../controller/dataController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { resolveTeamContext } from "../middleware/contextMiddleware.js";
 
 const dataRouter = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
+
+// CSV bulk import endpoint
+dataRouter.post("/import-csv", upload.single("file"), importCSVData);
 
 // Public route for adding data (from scrapers)
 dataRouter.post("/", createData);
@@ -38,8 +46,9 @@ dataRouter.post("/update-city", updateCityData);
 dataRouter.post("/update-screenshots", updateScreenshotData);
 dataRouter.post("/toggle-favorite", toggleFavorite);
 dataRouter.post("/update-whatsapp-status", updateWhatsAppStatus);
-dataRouter.post("/bulk-update-whatsapp-status", bulkUpdateWhatsAppStatus);
 dataRouter.post("/update-lead-status", updateLeadStatus);
+dataRouter.put("/lead/:leadId", updateLead);
+dataRouter.delete("/lead/:leadId", deleteLead);
 
 
 export default dataRouter;
