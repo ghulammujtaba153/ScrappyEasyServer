@@ -8,7 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import connectDB from "./database/db.js";
 import router from "./routes/index.js";
-import whatsappService from "./services/whatsapp.service.js";
+import whatsappController from "./controller/whatsAppVerification.js";
 import setupSocketIO from "./services/socket.service.js";
 // import { setupMediaStream } from "./utils/mediaStream.js"; // Disabled: using text-based voice approach
 
@@ -152,16 +152,10 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, async () => {
    console.log(`🚀 Server running on port ${PORT}`);
 
-   // try {
-   //     console.log("📲 Initializing default WhatsApp session...");
-   //     const result = await whatsappService.initializeSession("default");
-
-   //     if (result.success) {
-   //         console.log("✅ Default WhatsApp session initialized.");
-   //     } else {
-   //         console.error("❌ WhatsApp init failed:", result.message);
-   //     }
-   // } catch (error) {
-   //     console.error("❌ WhatsApp initialization error:", error);
-   // }
+   try {
+       console.log("📲 Restoring WhatsApp sessions...");
+       await whatsappController.initAllSessions();
+   } catch (error) {
+       console.error("❌ WhatsApp auto-restoration error:", error);
+   }
 });

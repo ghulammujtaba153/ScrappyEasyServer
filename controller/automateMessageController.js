@@ -1,5 +1,4 @@
-// import AutomateMessageModel from "../models/AutomateMessageSchema.js";
-import whatsappService from "../services/whatsapp.service.js";
+import whatsappController from "./whatsAppVerification.js";
 import AutomateMessageModel from "../models/automateMessageSchema.js";
 import QualifiedLeads from "../models/qualifiedLeadsSchema.js";
 
@@ -125,7 +124,7 @@ export const deleteMessage = async (req, res) => {
 
 export const sendBatch = async (req, res) => {
     try {
-        const { listId, batchSize = 10, sessionId = 'default' } = req.body;
+        const { listId, batchSize = 10, userId } = req.body;
 
         const list = await AutomateMessageModel.findById(listId)
             .populate({
@@ -144,17 +143,35 @@ export const sendBatch = async (req, res) => {
             return res.status(400).json({ error: 'No message content defined for this list' });
         }
 
+        // Use the userId from the list if not provided in body
+        const effectiveUserId = userId || list.userId;
+
+        // Check daily limit
+        const currentCount = getDailyCount(effectiveUserId);
+        const remainingAllowed = DAILY_MESSAGE_LIMIT - currentCount;
+        
+        if (remainingAllowed <= 0) {
+            return res.status(429).json({ 
+                success: false, 
+                error: `Daily message limit (${DAILY_MESSAGE_LIMIT}) reached. Try again tomorrow.`,
+                remainingMessages: 0
+            });
+        }
+
+        // Adjust batchSize based on remaining allowed messages
+        const effectiveBatchSize = Math.min(batchSize, remainingAllowed);
+
         // Check if using qualified leads or legacy numbers
         if (list.qualifiedLeadsId && list.qualifiedLeadsId.entries?.length > 0) {
             // Use qualified leads entries
-            return await sendBatchFromQualifiedLeads(list, batchSize, sessionId, res);
+            return await sendBatchFromQualifiedLeads(list, effectiveBatchSize, effectiveUserId, res, batchSize);
         }
 
         // Legacy: Find pending numbers from numbers array
         const pendingIndices = list.numbers
             .map((item, index) => ({ ...item.toObject(), originalIndex: index }))
             .filter(item => item.status === 'pending')
-            .slice(0, batchSize);
+            .slice(0, effectiveBatchSize);
 
         if (pendingIndices.length === 0) {
             return res.json({ success: true, message: 'No pending numbers to send', processed: 0 });
@@ -164,18 +181,23 @@ export const sendBatch = async (req, res) => {
         let successCount = 0;
         let failedCount = 0;
 
-        for (const item of pendingIndices) {
+        for (let i = 0; i < pendingIndices.length; i++) {
+            const item = pendingIndices[i];
             try {
-                const jid = item.number.includes('@') ? item.number : `${item.number.replace(/\D/g, '')}@s.whatsapp.net`;
-                await whatsappService.sendMessage(sessionId, jid, { text: list.message });
+                await whatsappController.sendMessage(effectiveUserId, item.number, { text: list.message });
 
                 list.numbers[item.originalIndex].status = 'sent';
                 list.numbers[item.originalIndex].sentAt = new Date();
                 list.numbers[item.originalIndex].error = undefined;
+                
                 successCount++;
+                incrementDailyCount(effectiveUserId);
                 results.push({ number: item.number, status: 'sent' });
 
-                await new Promise(r => setTimeout(r, Math.random() * 2000 + 1000));
+                // Delay between messages
+                if (i < pendingIndices.length - 1) {
+                    await new Promise(r => setTimeout(r, MESSAGE_DELAY_MS));
+                }
             } catch (error) {
                 console.error(`Failed to send to ${item.number}:`, error);
                 list.numbers[item.originalIndex].status = 'failed';
@@ -187,12 +209,15 @@ export const sendBatch = async (req, res) => {
 
         await list.save();
 
+        const updatedCount = getDailyCount(effectiveUserId);
         res.json({
             success: true,
             processed: results.length,
             successCount,
             failedCount,
-            results
+            results,
+            remainingMessages: DAILY_MESSAGE_LIMIT - updatedCount,
+            skipped: (batchSize > effectiveBatchSize) ? (batchSize - effectiveBatchSize) : 0
         });
 
     } catch (error) {
@@ -202,7 +227,7 @@ export const sendBatch = async (req, res) => {
 }
 
 // Helper function to send batch from qualified leads
-async function sendBatchFromQualifiedLeads(list, batchSize, sessionId, res) {
+async function sendBatchFromQualifiedLeads(list, batchSize, userId, res, originalBatchSize = 10) {
     const qualifiedLeads = list.qualifiedLeadsId;
     
     // Find entries with not-sent or failed message status that have phone numbers
@@ -226,17 +251,16 @@ async function sendBatchFromQualifiedLeads(list, batchSize, sessionId, res) {
     // Get the qualified leads document to update
     const qualifiedLeadsDoc = await QualifiedLeads.findById(qualifiedLeads._id);
 
-    for (const { entry, index } of pendingEntries) {
+    for (let i = 0; i < pendingEntries.length; i++) {
+        const { entry, index } = pendingEntries[i];
         const phone = entry.leadId.phone;
         const businessName = entry.leadId.title || 'Customer';
         
         try {
-            const jid = phone.includes('@') ? phone : `${phone.replace(/\D/g, '')}@s.whatsapp.net`;
-            
             // Personalize message if needed
             const personalizedMessage = list.message.replace(/\{name\}/gi, businessName);
             
-            await whatsappService.sendMessage(sessionId, jid, { text: personalizedMessage });
+            await whatsappController.sendMessage(userId, phone, { text: personalizedMessage });
 
             // Update entry status in qualified leads
             qualifiedLeadsDoc.entries[index].messageStatus = 'sent';
@@ -244,6 +268,7 @@ async function sendBatchFromQualifiedLeads(list, batchSize, sessionId, res) {
             qualifiedLeadsDoc.entries[index].messageAttempts = (qualifiedLeadsDoc.entries[index].messageAttempts || 0) + 1;
             
             successCount++;
+            incrementDailyCount(userId);
             results.push({ 
                 phone, 
                 businessName, 
@@ -251,7 +276,10 @@ async function sendBatchFromQualifiedLeads(list, batchSize, sessionId, res) {
                 entryId: entry._id
             });
 
-            await new Promise(r => setTimeout(r, Math.random() * 2000 + 1000));
+            // Delay between messages
+            if (i < pendingEntries.length - 1) {
+                await new Promise(r => setTimeout(r, MESSAGE_DELAY_MS));
+            }
         } catch (error) {
             console.error(`Failed to send to ${phone}:`, error);
             
@@ -273,19 +301,22 @@ async function sendBatchFromQualifiedLeads(list, batchSize, sessionId, res) {
     // Save qualified leads with updated statuses
     await qualifiedLeadsDoc.save();
 
+    const updatedCount = getDailyCount(userId);
     res.json({
         success: true,
         processed: results.length,
         successCount,
         failedCount,
-        results
+        results,
+        remainingMessages: DAILY_MESSAGE_LIMIT - updatedCount,
+        skipped: (originalBatchSize > batchSize) ? (originalBatchSize - batchSize) : 0
     });
 }
 
 // Send single message to a specific entry
 export const sendSingleMessage = async (req, res) => {
     try {
-        const { qualifiedLeadId, entryId, messageContent, userId, sessionId = 'default' } = req.body;
+        const { qualifiedLeadId, entryId, messageContent, userId } = req.body;
 
         // Check daily limit
         const currentCount = getDailyCount(userId);
@@ -297,7 +328,7 @@ export const sendSingleMessage = async (req, res) => {
             });
         }
 
-        const qualifiedLeadsDoc = await QualifiedLeads.findById(qualifiedLeadId);
+        const qualifiedLeadsDoc = await QualifiedLeads.findById(qualifiedLeadId).populate('entries.leadId');
         if (!qualifiedLeadsDoc) {
             return res.status(404).json({ success: false, error: 'Qualified lead not found' });
         }
@@ -311,17 +342,13 @@ export const sendSingleMessage = async (req, res) => {
             return res.status(400).json({ success: false, error: 'No phone number for this lead' });
         }
 
-        // Populate the lead data
-        await qualifiedLeadsDoc.populate('entries.leadId');
-        const populatedEntry = qualifiedLeadsDoc.entries.id(entryId);
-        const phone = populatedEntry.leadId.phone;
-        const businessName = populatedEntry.leadId.title || 'Customer';
+        const phone = entry.leadId.phone;
+        const businessName = entry.leadId.title || 'Customer';
 
         try {
-            const jid = phone.includes('@') ? phone : `${phone.replace(/\D/g, '')}@s.whatsapp.net`;
             const personalizedMessage = messageContent.replace(/\{name\}/gi, businessName);
             
-            await whatsappService.sendMessage(sessionId, jid, { text: personalizedMessage });
+            await whatsappController.sendMessage(userId, phone, { text: personalizedMessage });
 
             // Update entry status
             entry.messageStatus = 'sent';
@@ -362,7 +389,7 @@ export const sendSingleMessage = async (req, res) => {
 // Send batch messages with daily limit and 2-second delay
 export const sendBatchWithLimit = async (req, res) => {
     try {
-        const { qualifiedLeadId, entryIds, messageContent, userId, sessionId = 'default' } = req.body;
+        const { qualifiedLeadId, entryIds, messageContent, userId } = req.body;
 
         // Check daily limit
         const currentCount = getDailyCount(userId);
@@ -403,10 +430,9 @@ export const sendBatchWithLimit = async (req, res) => {
             const businessName = entry.leadId.title || 'Customer';
 
             try {
-                const jid = phone.includes('@') ? phone : `${phone.replace(/\D/g, '')}@s.whatsapp.net`;
                 const personalizedMessage = messageContent.replace(/\{name\}/gi, businessName);
                 
-                await whatsappService.sendMessage(sessionId, jid, { text: personalizedMessage });
+                await whatsappController.sendMessage(userId, phone, { text: personalizedMessage });
 
                 entry.messageStatus = 'sent';
                 entry.lastMessagedAt = new Date();

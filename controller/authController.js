@@ -349,3 +349,56 @@ export const inviteResetPassword = async (req, res) => {
         res.status(500).json({ message: "Failed to set password", error: error.message });
     }
 }
+// Verify invitation token
+export const verifyInvitationToken = async (req, res) => {
+    try {
+        const { token } = req.params;
+        const user = await User.findOne({
+            invitationToken: token,
+            invitationTokenExpires: { $gt: Date.now() }
+        }).select("email status");
+
+        if (!user) {
+            return res.status(400).json({ message: "Invalid or expired invitation token" });
+        }
+
+        res.status(200).json({ valid: true, email: user.email });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+// Complete invitation and activate user
+export const confirmInvitation = async (req, res) => {
+    try {
+        const { token, password, name, country, aboutUser } = req.body;
+
+        const user = await User.findOne({
+            invitationToken: token,
+            invitationTokenExpires: { $gt: Date.now() }
+        });
+
+        if (!user) {
+            return res.status(400).json({ message: "Invalid or expired invitation token" });
+        }
+
+        if (!password || password.length < 6) {
+            return res.status(400).json({ message: "Password must be at least 6 characters long" });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        user.password = hashedPassword;
+        user.name = name || user.name;
+        user.country = country || user.country;
+        user.aboutUser = aboutUser || user.aboutUser;
+        user.status = "active";
+        user.invitationToken = undefined;
+        user.invitationTokenExpires = undefined;
+
+        await user.save();
+
+        res.status(200).json({ message: "Account activated successfully. You can now login.", email: user.email });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};

@@ -3,15 +3,16 @@ import mongoose from "mongoose";
 const userSchema = new mongoose.Schema({
     name: {
         type: String,
-        required: true
+        required: false
     },
     email: {
         type: String,
-        required: true
+        required: true,
+        unique: true
     },
     country: {
         type: String,
-        required: true
+        required: false
     },
     password: {
         type: String,
@@ -19,16 +20,19 @@ const userSchema = new mongoose.Schema({
     },
     aboutUser: {
         type: String,
-        required: true
+        required: false
     },
     status: {
         type: String,
+        enum: ["active", "invited", "blocked"],
         default: "active"
     },
     role: {
         type: String,
         default: "user"
     },
+    invitationToken: String,
+    invitationTokenExpires: Date,
 }, {
     timestamps: true
 })

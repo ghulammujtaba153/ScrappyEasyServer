@@ -26,6 +26,37 @@ class WhatsAppController {
     this.ERROR_405_COOLDOWN_DEFAULT = 30_000;
   }
 
+  /**
+   * Automatically initialize sessions for all users who have saved credentials
+   */
+  async initAllSessions() {
+    try {
+      const sessionsDir = path.join(process.cwd(), "whatsapp_sessions");
+      if (!fs.existsSync(sessionsDir)) {
+        fs.mkdirSync(sessionsDir, { recursive: true });
+        return;
+      }
+
+      const entries = fs.readdirSync(sessionsDir);
+      console.log(`🔍 Found ${entries.length} potential WhatsApp sessions to restore.`);
+
+      for (const userId of entries) {
+        const userPath = path.join(sessionsDir, userId);
+        if (fs.lstatSync(userPath).isDirectory()) {
+          // Check if creds.json exists (basic check for valid session)
+          if (fs.existsSync(path.join(userPath, "creds.json"))) {
+            console.log(`[WhatsApp] Restoring session for user: ${userId}`);
+            this.initializeForUser(userId).catch(err => {
+              console.error(`[WhatsApp] Failed to restore session for ${userId}:`, err.message);
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error("[WhatsApp] Error during initAllSessions:", error);
+    }
+  }
+
   async initializeForUser(userIdInput, forceNewSession = false) {
     try {
       const userId = userIdInput?.toString();
@@ -694,6 +725,55 @@ class WhatsAppController {
     }
 
     return results;
+  }
+
+  /**
+   * Send a message to a number using user's WhatsApp session
+   */
+  async sendMessage(userId, to, content) {
+    const session = this.getUserSession(userId);
+
+    if (!session) {
+      throw new Error("WhatsApp session not initialized. Please connect first.");
+    }
+
+    if (!session.isConnected || !session.client) {
+      throw new Error("WhatsApp not connected. Please scan QR code first.");
+    }
+
+    try {
+      const cleanNumber = to.replace(/\D/g, "");
+      const jid = cleanNumber + "@s.whatsapp.net";
+
+      // Check if number is on WhatsApp
+      const [exists] = await session.client.onWhatsApp(jid);
+      if (!exists?.exists) {
+        throw new Error(`Number ${to} is not registered on WhatsApp`);
+      }
+
+      let messagePayload;
+      if (typeof content === "string") {
+        messagePayload = { text: content };
+      } else if (content.text) {
+        messagePayload = { text: content.text };
+      } else {
+        throw new Error("Invalid message content");
+      }
+
+      // Send the message
+      const result = await session.client.sendMessage(jid, messagePayload);
+
+      return {
+        success: true,
+        messageId: result.key.id,
+        timestamp: new Date().toISOString(),
+        recipient: to,
+        userId
+      };
+    } catch (error) {
+      console.error(`❌ Failed to send message from user ${userId}:`, error);
+      throw error;
+    }
   }
 
   getStatus(userId) {

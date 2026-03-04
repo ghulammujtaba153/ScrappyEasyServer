@@ -1,35 +1,92 @@
+import crypto from "crypto";
 import Team from "../models/teamSchema.js";
+import User from "../models/userSchema.js";
+import { emailApi } from "../utils/mailer.js";
 import { sendNotification } from "./notificationController.js";
 
+const MAX_MEMBERS = 2;
+
+// Helper to handle member invitations/additions
+const processTeamMembers = async (emails, ownerId, teamName, req, oldMemberIds = []) => {
+    const memberIds = [];
+    const io = req.app.get('io');
+    const senderName = req.user?.name || "Team Owner";
+
+    for (const email of emails.slice(0, MAX_MEMBERS)) {
+        let user = await User.findOne({ email });
+
+        if (user) {
+            memberIds.push(user._id);
+
+            // Only notify if not already a member
+            if (!oldMemberIds.some(id => id.toString() === user._id.toString())) {
+                // Notify via in-app notification only
+                await sendNotification(
+                    io,
+                    user._id,
+                    'Added to Team',
+                    `You have been added to the team "${teamName}" by ${senderName}`
+                );
+            }
+        } else {
+            // New user, create placeholder and invite
+            const token = crypto.randomBytes(32).toString('hex');
+            user = await User.create({
+                email,
+                password: crypto.randomBytes(16).toString('hex'), // temp password
+                status: 'invited',
+                invitationToken: token,
+                invitationTokenExpires: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
+                country: 'N/A', // Placeholders
+                aboutUser: 'Invited via team'
+            });
+
+            memberIds.push(user._id);
+
+            // Send invitation email
+            await emailApi.sendTransacEmail({
+                subject: `Invitation to join team "${teamName}"`,
+                sender: { name: "Scraper Dashboard", email: process.env.BREVO_SENDER_EMAIL || "no-reply@scraper.com" },
+                to: [{ email: user.email }],
+                htmlContent: `
+                    <div style="font-family: sans-serif; padding: 20px; color: #333;">
+                        <h2>Welcome!</h2>
+                        <p>${senderName} has invited you to join their team <strong>"${teamName}"</strong> on our platform.</p>
+                        <p>To accept this invitation and set up your account, please click the link below:</p>
+                        <a href="${process.env.FRONTEND_URL}/invite/confirm?token=${token}" style="display: inline-block; padding: 10px 20px; background-color: #0F792C; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px;">Join Team</a>
+                        <p style="margin-top: 30px; font-size: 12px; color: #777;">This link will expire in 7 days.</p>
+                    </div>
+                `
+            }).catch(err => console.error("Invite email fail:", err));
+        }
+    }
+    return memberIds;
+};
 
 export const createTeam = async (req, res) => {
     try {
-        if (req.body.members && req.body.members.length > 2) {
-            return res.status(400).json({ message: "A maximum of 2 sub-accounts is allowed per team." });
+        const { name, owner, memberEmails = [] } = req.body;
+
+        if (memberEmails.length > MAX_MEMBERS) {
+            return res.status(400).json({ message: `A maximum of ${MAX_MEMBERS} sub-accounts is allowed per team.` });
         }
 
-        const team = new Team(req.body);
+        // Process members (create/notify/invite)
+        const members = await processTeamMembers(memberEmails, owner, name, req, []);
+
+        const team = new Team({
+            name,
+            owner,
+            members
+        });
         await team.save();
-        
-        // Send notifications to all members
-        const io = req.app.get('io');
-        if (team.members && team.members.length > 0) {
-            for (const memberId of team.members) {
-                await sendNotification(
-                    io,
-                    memberId,
-                    'Added to Team',
-                    `You have been added to the team "${team.name}"`
-                );
-            }
-        }
         
         res.status(201).json(team);
     } catch (error) {
+        console.error("Create team error:", error);
         res.status(400).json({ message: error.message });
     }
 }
-
 
 export const getTeams = async (req, res) => {
     try {
@@ -40,7 +97,6 @@ export const getTeams = async (req, res) => {
     }
 }
 
-
 export const getTeamById = async (req, res) => {
     try {
         const team = await Team.findById(req.params.id).populate('members').populate('owner');
@@ -49,7 +105,6 @@ export const getTeamById = async (req, res) => {
         res.status(400).json({ message: error.message });
     }
 }
-
 
 export const getTeamsByOwner = async (req, res) => {
     try {
@@ -71,7 +126,7 @@ export const getTeamsByMember = async (req, res) => {
 
 export const updateTeam = async (req, res) => {
     try {
-        // Get the old team to compare members
+        const { name, memberEmails = [] } = req.body;
         const oldTeam = await Team.findById(req.params.id);
         
         if (!oldTeam) {
@@ -82,60 +137,26 @@ export const updateTeam = async (req, res) => {
             return res.status(403).json({ message: "Not authorized to update this team" });
         }
         
-        const oldMembers = oldTeam?.members?.map(m => m.toString()) || [];
-        const newMembers = req.body.members || [];
-        
-        if (newMembers.length > 2) {
-            return res.status(400).json({ message: "A maximum of 2 sub-accounts is allowed per team." });
+        if (memberEmails.length > MAX_MEMBERS) {
+            return res.status(400).json({ message: `A maximum of ${MAX_MEMBERS} sub-accounts is allowed per team.` });
         }
         
-        const team = await Team.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        // Logic for updates: we can simplify by processing all emails again
+        // Users who were already in members won't get duplicate invitations due to User.findOne check logic in processTeamMembers
+        // and we avoid re-notifying them by passing the old member IDs.
+        const members = await processTeamMembers(memberEmails, oldTeam.owner, name || oldTeam.name, req, oldTeam.members);
         
-        // Send notifications to newly added members
-        const io = req.app.get('io');
-        const addedMembers = newMembers.filter(m => !oldMembers.includes(m.toString()));
-        const removedMembers = oldMembers.filter(m => !newMembers.includes(m));
-        
-        for (const memberId of addedMembers) {
-            await sendNotification(
-                io,
-                memberId,
-                'Added to Team',
-                `You have been added to the team "${team.name}"`
-            );
-        }
-        
-        // Notify removed members (when someone leaves or is removed)
-        for (const memberId of removedMembers) {
-            await sendNotification(
-                io,
-                memberId,
-                'Removed from Team',
-                `You have been removed from the team "${team.name}"`
-            );
-        }
-        
-        // Notify owner when a member leaves the team
-        if (removedMembers.length > 0 && team.owner) {
-            const User = (await import('../models/userSchema.js')).default;
-            for (const memberId of removedMembers) {
-                const member = await User.findById(memberId);
-                const memberName = member?.name || member?.email || 'A member';
-                await sendNotification(
-                    io,
-                    team.owner.toString(),
-                    'Member Left Team',
-                    `${memberName} has left the team "${team.name}"`
-                );
-            }
-        }
+        const team = await Team.findByIdAndUpdate(req.params.id, 
+            { name: name || oldTeam.name, members }, 
+            { new: true }
+        ).populate('members');
         
         res.status(200).json(team);
     } catch (error) {
+        console.error("Update team error:", error);
         res.status(400).json({ message: error.message });
     }
 }
-
 
 export const deleteTeam = async (req, res) => {
     try {
