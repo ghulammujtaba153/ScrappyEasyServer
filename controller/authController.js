@@ -19,7 +19,8 @@ export const register = async (req, res) => {
             req.body.password = hashedPassword;
         }
         const user = await User.create(req.body);
-        res.status(201).json({ user, message: "User registered successfully" });
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "5d" });
+        res.status(201).json({ user, token, message: "User registered successfully" });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
