@@ -17,7 +17,8 @@ import {
     updateLeadStatus,
     importCSVData,
     updateLead,
-    deleteLead
+    deleteLead,
+    updateEmailData
 } from "../controller/dataController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { resolveTeamContext } from "../middleware/contextMiddleware.js";
@@ -49,6 +50,7 @@ dataRouter.post("/update-whatsapp-status", updateWhatsAppStatus);
 dataRouter.post("/update-lead-status", updateLeadStatus);
 dataRouter.put("/lead/:leadId", updateLead);
 dataRouter.delete("/lead/:leadId", deleteLead);
+dataRouter.post("/update-emails", updateEmailData);
 
 
 export default dataRouter;

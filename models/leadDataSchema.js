@@ -68,6 +68,12 @@ const leadDataSchema = new mongoose.Schema({
         enum: ['not-reached', 'interested', 'not-interested', "no-response" ],
         default: 'not-reached'
     },
+    // Emails extracted from the website
+    emails: [{
+        type: String,
+        default: []
+    }],
+    // Additional metadata from scraping
     // Additional metadata from scraping
     metadata: {
         type: mongoose.Schema.Types.Mixed,

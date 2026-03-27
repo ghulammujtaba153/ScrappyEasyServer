@@ -907,3 +907,42 @@ export const updateLeadStatus = async (req, res) => {
         });
     }
 };
+
+
+// Update email data for multiple leads
+export const updateEmailData = async (req, res) => {
+    try {
+        const { recordId, emailData } = req.body;
+
+        if (!emailData || Object.keys(emailData).length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Email data is required"
+            });
+        }
+
+        // emailData is { leadId: [email1, email2] }
+        const updatePromises = Object.entries(emailData).map(async ([leadId, emails]) => {
+            if (mongoose.Types.ObjectId.isValid(leadId)) {
+                return LeadData.findByIdAndUpdate(
+                    leadId,
+                    { emails },
+                    { new: true }
+                );
+            }
+        });
+
+        await Promise.all(updatePromises);
+
+        res.json({
+            success: true,
+            message: "Email data updated successfully"
+        });
+    } catch (error) {
+        console.error("Error updating email data:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};

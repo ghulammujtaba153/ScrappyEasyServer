@@ -137,59 +137,52 @@ export const extractEmailsValidation = (req,res,next)=>{
     next();
 };
 
-export const extractEmails = async (req,res)=>{
+import LeadData from "../models/leadDataSchema.js";
 
-    try{
+const performExtraction = async (url) => {
+    const visited = new Set();
+    const emails = new Set();
+    const queue = [url];
 
-        const {url} = req.body;
+    while(queue.length && visited.size < MAX_PAGES){
+        const page = queue.shift();
+        if(visited.has(page)) continue;
+        visited.add(page);
 
-        const visited = new Set();
-        const emails = new Set();
-        const queue = [url];
+        try{
+            const {data} = await axios.get(page,{
+                timeout:10000,
+                headers:{
+                    "User-Agent":"Mozilla/5.0"
+                }
+            });
 
-        while(queue.length && visited.size < MAX_PAGES){
+            const foundEmails = parseEmailsFromHtml(data);
+            foundEmails.forEach(e=>emails.add(e));
 
-            const page = queue.shift();
-
-            if(visited.has(page)) continue;
-
-            visited.add(page);
-
-            try{
-
-                const {data} = await axios.get(page,{
-                    timeout:10000,
-                    headers:{
-                        "User-Agent":"Mozilla/5.0"
-                    }
-                });
-
-                const foundEmails = parseEmailsFromHtml(data);
-
-                foundEmails.forEach(e=>emails.add(e));
-
-                const links = extractLinks(data,url);
-
-                links.forEach(l=>{
-                    if(!visited.has(l)) queue.push(l);
-                });
-
-            }catch(e){
-                console.log("skip page",page);
-            }
-
+            const links = extractLinks(data,url);
+            links.forEach(l=>{
+                if(!visited.has(l)) queue.push(l);
+            });
+        }catch(e){
+            console.log("skip page",page);
         }
+    }
+    return [...emails];
+}
 
+export const extractEmails = async (req,res)=>{
+    try{
+        const {url} = req.body;
+        const result = await performExtraction(url);
         return res.json({
             success:true,
             data:{
-                emails:[...emails],
-                count:emails.size
+                emails:result,
+                count:result.length
             }
         });
-
     }catch(err){
-
         return res.json({
             success:true,
             data:{
@@ -197,7 +190,53 @@ export const extractEmails = async (req,res)=>{
                 count:0
             }
         });
-
     }
+};
 
+export const bulkExtractEmails = async (req, res) => {
+    try {
+        const { recordId, leads } = req.body; // leads: [{ leadId, url }]
+
+        if (!Array.isArray(leads) || leads.length === 0) {
+            return res.status(400).json({ success: false, message: "No leads provided for extraction" });
+        }
+
+        console.log(`[BULK MAIL] Starting extraction for ${leads.length} websites...`);
+        const emailMap = {};
+        let successCount = 0;
+        let totalEmailsCount = 0;
+
+        // Using a loop instead of Promise.all to prevent resource exhaustion and being blocked by target servers
+        for (const item of leads) {
+            try {
+                if (!item.url) continue;
+                const emails = await performExtraction(item.url);
+                emailMap[item.leadId] = emails;
+                
+                if (emails.length > 0) {
+                    successCount++;
+                    totalEmailsCount += emails.length;
+                    
+                    // Save to DB immediately so partial results are persisted
+                    await LeadData.findByIdAndUpdate(item.leadId, { emails });
+                }
+            } catch (err) {
+                console.error(`[BULK MAIL] Failed to extract from ${item.url}:`, err.message);
+            }
+        }
+
+        console.log(`[BULK MAIL] Done. Found ${totalEmailsCount} emails across ${successCount} successful extractions.`);
+
+        res.status(200).json({
+            success: true,
+            message: "Bulk mail extraction completed",
+            extractedCount: successCount,
+            totalEmails: totalEmailsCount,
+            data: emailMap
+        });
+
+    } catch (error) {
+        console.error("Bulk extraction error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 };
