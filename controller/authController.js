@@ -12,15 +12,36 @@ export const register = async (req, res) => {
         if (!req.body.name || !req.body.email || !req.body.password) {
             return res.status(400).json({ message: "All fields are required" });
         }
+        
+        const existingUser = await User.findOne({ email: req.body.email });
+        if (existingUser) {
+            return res.status(400).json({ message: "Email already registered" });
+        }
+
         if (req.body.password.length < 6) {
             return res.status(400).json({ message: "Password must be at least 6 characters long" });
         } else {
             const hashedPassword = await bcrypt.hash(req.body.password, 10);
             req.body.password = hashedPassword;
         }
-        const user = await User.create(req.body);
+
+        // Explicitly set status to under_review for new manual registrations
+        // Handle screenshot if uploaded
+        const userData = {
+            ...req.body,
+            status: "under_review",
+            paymentScreenshot: req.file ? req.file.filename : null
+        };
+
+        const user = await User.create(userData);
+        
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "5d" });
-        res.status(201).json({ user, token, message: "User registered successfully" });
+
+        res.status(201).json({ 
+            user: { name: user.name, email: user.email, status: user.status }, 
+            token,
+            message: "Registration successful! Your account is now under review." 
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -33,10 +54,22 @@ export const login = async (req, res) => {
         if (!user) {
             return res.status(400).json({ message: "User not found" });
         }
+
+        if (user.status === "under_review") {
+            return res.status(403).json({ 
+                message: "Your account is currently under review. Please wait for admin approval (usually 2-4 hours)." 
+            });
+        }
+
+        if (user.status === "blocked") {
+            return res.status(403).json({ message: "Your account has been blocked. Please contact support." });
+        }
+
         const isPasswordValid = await bcrypt.compare(req.body.password, user.password);
         if (!isPasswordValid) {
             return res.status(400).json({ message: "Invalid password" });
         }
+
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "5d" });
         res.status(200).json({ user, token, message: "Login successful" });
     } catch (error) {
@@ -135,6 +168,7 @@ export const getAllUsers = async (req, res) => {
         const limit = parseInt(req.query.limit) || 10;
         const search = req.query.search || "";
         const role = req.query.role || "";
+        const status = req.query.status || "";
 
         const query = {
             name: { $regex: search, $options: "i" },
@@ -142,6 +176,10 @@ export const getAllUsers = async (req, res) => {
 
         if (role) {
             query.role = role;
+        }
+        
+        if (status) {
+            query.status = status;
         }
 
         const users = await User.find(query, "-password")

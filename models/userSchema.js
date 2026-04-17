@@ -24,8 +24,8 @@ const userSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ["active", "invited", "blocked"],
-        default: "active"
+        enum: ["active", "invited", "blocked", "under_review"],
+        default: "under_review"
     },
     role: {
         type: String,
@@ -33,6 +33,10 @@ const userSchema = new mongoose.Schema({
     },
     invitationToken: String,
     invitationTokenExpires: Date,
+    paymentScreenshot: {
+        type: String,
+        required: false
+    },
 }, {
     timestamps: true
 })

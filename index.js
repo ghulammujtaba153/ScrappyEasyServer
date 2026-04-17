@@ -19,6 +19,7 @@ dotenv.config();
 ====================== */
 const app = express();
 const server = http.createServer(app);
+server.timeout = 30000; // 30 seconds
 app.use(helmet());
 app.set("trust proxy", 1);
 
@@ -154,8 +155,18 @@ server.listen(PORT, async () => {
 
    try {
        console.log("📲 Restoring WhatsApp sessions...");
-       await whatsappController.initAllSessions();
+       
+       // Add a 20-second timeout to prevent startup hangs
+       const restorationTimeout = new Promise((_, reject) => 
+           setTimeout(() => reject(new Error("Restoration timed out after 20s")), 20000)
+       );
+
+       await Promise.race([
+           whatsappController.initAllSessions(),
+           restorationTimeout
+       ]);
+       console.log("✅ WhatsApp sessions restored (or skipped if timeout)");
    } catch (error) {
-       console.error("❌ WhatsApp auto-restoration error:", error);
+       console.error("❌ WhatsApp auto-restoration issue:", error.message || error);
    }
 });

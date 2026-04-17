@@ -549,6 +549,7 @@ export const getUserDetailsStats = async (req, res) => {
                 gender: user.gender,
                 dob: user.dob,
                 areaOfInterest: user.areaOfInterest,
+                paymentScreenshot: user.paymentScreenshot,
                 createdAt: user.createdAt
             },
             stats: {
