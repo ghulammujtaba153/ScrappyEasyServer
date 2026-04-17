@@ -37,6 +37,10 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: false
     },
+    planName: String,
+    planAmount: String,
+    planExpiry: Date,
+    planId: String,
 }, {
     timestamps: true
 })

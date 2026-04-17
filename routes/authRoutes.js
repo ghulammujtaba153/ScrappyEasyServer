@@ -3,7 +3,7 @@ import multer from "multer";
 import { 
     login, register, updateUser, verifyToken, resetPassword, 
     inviteResetPassword, inviteUser, getAllUsers, deleteUser, 
-    getUserProfile, confirmInvitation, verifyInvitationToken 
+    getUserProfile, confirmInvitation, verifyInvitationToken, activateUserSubscription 
 } from "../controller/authController.js";
 
 const storage = multer.diskStorage({
@@ -34,5 +34,6 @@ authRouter.delete("/deleteUser/:id", deleteUser);
 // Invitation confirmation
 authRouter.get("/verify-invitation/:token", verifyInvitationToken);
 authRouter.post("/confirm-invitation", confirmInvitation);
+authRouter.post("/activate-subscription/:userId", activateUserSubscription);
 
 export default authRouter;

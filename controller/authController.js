@@ -25,12 +25,24 @@ export const register = async (req, res) => {
             req.body.password = hashedPassword;
         }
 
+        // Calculate plan expiry if it's a 2-year plan
+        let planExpiry = null;
+        if (req.body.planId === "2-year") {
+            const date = new Date();
+            date.setFullYear(date.getFullYear() + 2);
+            planExpiry = date;
+        }
+
         // Explicitly set status to under_review for new manual registrations
         // Handle screenshot if uploaded
         const userData = {
             ...req.body,
             status: "under_review",
-            paymentScreenshot: req.file ? req.file.filename : null
+            paymentScreenshot: req.file ? req.file.filename : null,
+            planExpiry,
+            planName: req.body.planName,
+            planAmount: req.body.planAmount,
+            planId: req.body.planId,
         };
 
         const user = await User.create(userData);
@@ -436,6 +448,67 @@ export const confirmInvitation = async (req, res) => {
         await user.save();
 
         res.status(200).json({ message: "Account activated successfully. You can now login.", email: user.email });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Activate user subscription and send email
+export const activateUserSubscription = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const user = await User.findById(userId);
+        
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        user.status = "active";
+        await user.save();
+
+        // Send activation email
+        try {
+            const senderEmail = process.env.BREVO_SENDER_EMAIL || process.env.BREVO_FROM;
+            const senderName = process.env.BREVO_SENDER_NAME || "Map Harvest Admin";
+
+            if (senderEmail) {
+                const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+                sendSmtpEmail.subject = "Your Map Harvest Subscription is Now Active!";
+                sendSmtpEmail.htmlContent = `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
+                        <div style="text-align: center; margin-bottom: 24px;">
+                            <h1 style="color: #0f792c; margin: 0;">Subscription Activated!</h1>
+                        </div>
+                        <p>Hello <strong>${user.name}</strong>,</p>
+                        <p>We are happy to inform you that your <strong>${user.planName || 'Pro'}</strong> subscription has been verified and activated.</p>
+                        <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 24px 0;">
+                            <h3 style="margin-top: 0; color: #1e293b;">Plan Details:</h3>
+                            <ul style="list-style: none; padding: 0;">
+                                <li style="margin-bottom: 8px;"><strong>Plan:</strong> ${user.planName || 'Pro'}</li>
+                                <li style="margin-bottom: 8px;"><strong>Amount Paid:</strong> ${user.planAmount || 'Verified'}</li>
+                                ${user.planExpiry ? `<li style="margin-bottom: 8px;"><strong>Expiry Date:</strong> ${new Date(user.planExpiry).toLocaleDateString()}</li>` : '<li style="margin-bottom: 8px;"><strong>Access:</strong> Lifetime</li>'}
+                            </ul>
+                        </div>
+                        <p>You can now log in and access all the premium scraping tools and CRM features.</p>
+                        <div style="text-align: center; margin-top: 32px;">
+                            <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/login" style="background-color: #0f792c; color: white; padding: 12px 32px; text-decoration: none; border-radius: 8px; font-weight: bold;">Login to Dashboard</a>
+                        </div>
+                        <p style="margin-top: 32px; font-size: 12px; color: #64748b; text-align: center;">
+                            If you have any questions, please contact our support team.
+                        </p>
+                    </div>
+                `;
+                sendSmtpEmail.sender = { name: senderName, email: senderEmail };
+                sendSmtpEmail.to = [{ email: user.email, name: user.name }];
+
+                await emailApi.sendTransacEmail(sendSmtpEmail);
+            }
+        } catch (emailError) {
+            console.error("Failed to send activation email:", emailError);
+            // We continue even if email fails - user is activated in DB
+        }
+
+        res.status(200).json({ success: true, message: "Subscription activated successfully!", user });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
