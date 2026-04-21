@@ -1,7 +1,6 @@
 import User from "../models/userSchema.js";
-import Subscription from "../models/subscriptionSchema.js";
-import Package from "../models/packageSchema.js";
 import Data from "../models/dataSchema.js";
+
 
 // Get dashboard overview stats
 export const getAdminDashboardStats = async (req, res) => {
@@ -25,49 +24,54 @@ export const getAdminDashboardStats = async (req, res) => {
             ? Math.round(((newUsersThisMonth - usersLastMonth) / usersLastMonth) * 100)
             : 100;
 
-        // Total Revenue
-        const revenueResult = await Subscription.aggregate([
-            { $match: { status: 'Active' } },
-            { $group: { _id: null, total: { $sum: "$amount" } } }
+        // Total Revenue (Sum of planAmount from all active users)
+        const revenueResult = await User.aggregate([
+            { $match: { status: 'active', planAmount: { $exists: true } } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
         ]);
         const totalRevenue = revenueResult[0]?.total || 0;
 
-        // Revenue this month
-        const revenueThisMonth = await Subscription.aggregate([
-            { $match: { createdAt: { $gte: startOfMonth }, status: 'Active' } },
-            { $group: { _id: null, total: { $sum: "$amount" } } }
+
+        // Revenue this month (Users who upgraded/registered this month)
+        const revenueThisMonth = await User.aggregate([
+            { $match: { createdAt: { $gte: startOfMonth }, status: 'active', planAmount: { $exists: true } } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
         ]);
         const monthlyRevenue = revenueThisMonth[0]?.total || 0;
 
+
         // Revenue last month for comparison
-        const revenueLastMonth = await Subscription.aggregate([
-            { $match: { createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, status: 'Active' } },
-            { $group: { _id: null, total: { $sum: "$amount" } } }
+        const revenueLastMonth = await User.aggregate([
+            { $match: { createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, status: 'active', planAmount: { $exists: true } } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
         ]);
         const lastMonthRevenue = revenueLastMonth[0]?.total || 0;
+
         const revenueGrowthPercent = lastMonthRevenue > 0
             ? Math.round(((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100)
             : 100;
 
         // Active Subscriptions
-        const activeSubscriptions = await Subscription.countDocuments({ status: 'Active' });
+        const activeSubscriptions = await User.countDocuments({ status: 'active', planId: { $exists: true } });
 
         // Subscriptions last month
-        const subscriptionsLastMonth = await Subscription.countDocuments({
+        const subscriptionsLastMonth = await User.countDocuments({
             createdAt: { $gte: startOfLastMonth, $lt: startOfMonth },
-            status: 'Active'
+            status: 'active',
+            planId: { $exists: true }
         });
-        const subscriptionsThisMonth = await Subscription.countDocuments({
+        const subscriptionsThisMonth = await User.countDocuments({
             createdAt: { $gte: startOfMonth },
-            status: 'Active'
+            status: 'active',
+            planId: { $exists: true }
         });
         const subscriptionGrowthPercent = subscriptionsLastMonth > 0
             ? Math.round(((subscriptionsThisMonth - subscriptionsLastMonth) / subscriptionsLastMonth) * 100)
-            : 100;
+            : (subscriptionsThisMonth > 0 ? 100 : 0);
 
-        // Active Users (users with active subscriptions)
-        const activeUsers = await Subscription.distinct('user', { status: 'Active' });
-        const activeUserCount = activeUsers.length;
+        // Active Users (users with status active and a plan)
+        const activeUserCount = await User.countDocuments({ status: 'active', planId: { $exists: true } });
+
 
         res.status(200).json({
             stats: {
@@ -138,13 +142,14 @@ export const getRevenueData = async (req, res) => {
             const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
 
-            const revenueResult = await Subscription.aggregate([
-                { $match: { createdAt: { $gte: startDate, $lte: endDate } } },
-                { $group: { _id: null, total: { $sum: "$amount" } } }
+            const revenueResult = await User.aggregate([
+                { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true } } },
+                { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
             ]);
 
             const monthName = startDate.toLocaleString('default', { month: 'short' });
             const revenue = revenueResult[0]?.total || 0;
+
 
             data.push({
                 name: monthName,
@@ -163,25 +168,18 @@ export const getRevenueData = async (req, res) => {
 // Get subscription distribution by package
 export const getSubscriptionDistribution = async (req, res) => {
     try {
-        const distribution = await Subscription.aggregate([
-            { $match: { status: 'Active' } },
-            { $group: { _id: "$package", value: { $sum: 1 } } },
-            {
-                $lookup: {
-                    from: 'packages',
-                    localField: '_id',
-                    foreignField: '_id',
-                    as: 'packageInfo'
-                }
-            },
+        const distribution = await User.aggregate([
+            { $match: { status: 'active', planId: { $exists: true } } },
+            { $group: { _id: "$planName", value: { $sum: 1 } } },
             {
                 $project: {
-                    name: { $arrayElemAt: ['$packageInfo.name', 0] },
+                    name: "$_id",
                     value: 1,
                     _id: 0
                 }
             }
         ]);
+
 
         // Add colors for each plan
         const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
@@ -219,10 +217,13 @@ export const getUserActivityData = async (req, res) => {
                 createdAt: { $gte: startDate, $lte: endDate }
             });
 
-            // Count subscriptions as interactions proxy
-            const interactions = await Subscription.countDocuments({
-                createdAt: { $gte: startDate, $lte: endDate }
+            // Count subscriptions (users with active plans) proxy
+            const interactions = await User.countDocuments({
+                createdAt: { $gte: startDate, $lte: endDate },
+                status: 'active',
+                planId: { $exists: true }
             });
+
 
             const monthName = startDate.toLocaleString('default', { month: 'short' });
             data.push({
@@ -262,18 +263,19 @@ export const getAdminDashboardData = async (req, res) => {
             ? Math.round(((newUsersThisMonth - usersLastMonth) / usersLastMonth) * 100)
             : (newUsersThisMonth > 0 ? 100 : 0);
 
-        const revenueResult = await Subscription.aggregate([
-            { $group: { _id: null, total: { $sum: "$amount" } } }
+        const revenueResult = await User.aggregate([
+            { $match: { status: 'active', planAmount: { $exists: true } } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
         ]);
         const totalRevenue = revenueResult[0]?.total || 0;
 
-        const revenueThisMonthResult = await Subscription.aggregate([
-            { $match: { createdAt: { $gte: startOfMonth } } },
-            { $group: { _id: null, total: { $sum: "$amount" } } }
+        const revenueThisMonthResult = await User.aggregate([
+            { $match: { createdAt: { $gte: startOfMonth }, status: 'active', planAmount: { $exists: true } } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
         ]);
-        const revenueLastMonthResult = await Subscription.aggregate([
-            { $match: { createdAt: { $gte: startOfLastMonth, $lt: startOfMonth } } },
-            { $group: { _id: null, total: { $sum: "$amount" } } }
+        const revenueLastMonthResult = await User.aggregate([
+            { $match: { createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, status: 'active', planAmount: { $exists: true } } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
         ]);
         const monthlyRevenue = revenueThisMonthResult[0]?.total || 0;
         const lastMonthRevenue = revenueLastMonthResult[0]?.total || 0;
@@ -281,16 +283,21 @@ export const getAdminDashboardData = async (req, res) => {
             ? Math.round(((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100)
             : (monthlyRevenue > 0 ? 100 : 0);
 
-        const activeSubscriptions = await Subscription.countDocuments({ status: 'Active' });
-        const subscriptionsThisMonth = await Subscription.countDocuments({
-            createdAt: { $gte: startOfMonth }
+        const activeSubscriptions = await User.countDocuments({ status: 'active', planId: { $exists: true } });
+        const subscriptionsThisMonth = await User.countDocuments({
+            createdAt: { $gte: startOfMonth },
+            status: 'active',
+            planId: { $exists: true }
         });
-        const subscriptionsLastMonth = await Subscription.countDocuments({
-            createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }
+        const subscriptionsLastMonth = await User.countDocuments({
+            createdAt: { $gte: startOfLastMonth, $lt: startOfMonth },
+            status: 'active',
+            planId: { $exists: true }
         });
         const subscriptionGrowthPercent = subscriptionsLastMonth > 0
             ? Math.round(((subscriptionsThisMonth - subscriptionsLastMonth) / subscriptionsLastMonth) * 100)
             : (subscriptionsThisMonth > 0 ? 100 : 0);
+
 
         // Data/Scraping Stats
         const totalSearches = await Data.countDocuments();
@@ -327,15 +334,16 @@ export const getAdminDashboardData = async (req, res) => {
             userGrowth.push({ name: monthName, users: totalUsersUpToDate, newUsers: newUsersInMonth });
 
             // Revenue
-            const revenueInMonth = await Subscription.aggregate([
-                { $match: { createdAt: { $gte: startDate, $lte: endDate } } },
-                { $group: { _id: null, total: { $sum: "$amount" } } }
+            const revenueInMonth = await User.aggregate([
+                { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true } } },
+                { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
             ]);
             const monthRevenue = revenueInMonth[0]?.total || 0;
             revenue.push({
                 name: monthName,
                 revenue: monthRevenue
             });
+
 
             // Activity - use Data model for scraping activity
             const searches = await Data.countDocuments({
@@ -354,25 +362,18 @@ export const getAdminDashboardData = async (req, res) => {
         }
 
         // Subscription Distribution
-        const distributionResult = await Subscription.aggregate([
-            { $match: { status: 'Active' } },
-            { $group: { _id: "$package", value: { $sum: 1 } } },
-            {
-                $lookup: {
-                    from: 'packages',
-                    localField: '_id',
-                    foreignField: '_id',
-                    as: 'packageInfo'
-                }
-            },
+        const distributionResult = await User.aggregate([
+            { $match: { status: 'active', planId: { $exists: true } } },
+            { $group: { _id: "$planName", value: { $sum: 1 } } },
             {
                 $project: {
-                    name: { $arrayElemAt: ['$packageInfo.name', 0] },
+                    name: "$_id",
                     value: 1,
                     _id: 0
                 }
             }
         ]);
+
 
         const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
         const subscriptions = distributionResult.map((item, index) => ({
@@ -426,17 +427,20 @@ export const getUserDetailsStats = async (req, res) => {
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
         const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
-        // User's subscription stats
-        const totalSubscriptions = await Subscription.countDocuments({ user: userId });
-        const activeSubscription = await Subscription.findOne({ user: userId, status: 'Active' })
-            .populate('package', 'name price interval features');
+        // User's subscription info (since history is deleted, we use current)
+        const activeSubscription = user.status === 'active' && user.planId ? {
+            packageName: user.planName,
+            amount: user.planAmount,
+            status: user.status,
+            createdAt: user.createdAt,
+            planExpiry: user.planExpiry
+        } : null;
 
-        // Total amount spent by user
-        const totalSpentResult = await Subscription.aggregate([
-            { $match: { user: user._id } },
-            { $group: { _id: null, total: { $sum: "$amount" } } }
-        ]);
-        const totalSpent = totalSpentResult[0]?.total || 0;
+
+        // Total amount spent by user (current plan amount)
+        const totalSpent = (user.status === 'active' && user.planAmount) ? 
+            parseFloat(user.planAmount.replace('$', '')) || 0 : 0;
+
 
         // User's scraping/search stats
         const totalSearches = await Data.countDocuments({ userId: userId });
@@ -453,11 +457,9 @@ export const getUserDetailsStats = async (req, res) => {
         ]);
         const totalRecords = totalRecordsResult[0]?.total || 0;
 
-        // Subscription history
-        const subscriptionHistory = await Subscription.find({ user: userId })
-            .populate('package', 'name price interval')
-            .sort({ createdAt: -1 })
-            .limit(10);
+        // Subscription history (No longer trackable as separate models are gone, returning current as history)
+        const subscriptionHistory = activeSubscription ? [activeSubscription] : [];
+
 
         // Monthly spending chart data
         const spendingData = [];
@@ -466,16 +468,14 @@ export const getUserDetailsStats = async (req, res) => {
             const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
             const monthName = startDate.toLocaleString('default', { month: 'short' });
 
-            const monthSpent = await Subscription.aggregate([
-                { $match: { user: user._id, createdAt: { $gte: startDate, $lte: endDate } } },
-                { $group: { _id: null, total: { $sum: "$amount" } } }
-            ]);
+            const monthSpent = (user.status === 'active' && user.createdAt >= startDate && user.createdAt <= endDate) ? totalSpent : 0;
 
             spendingData.push({
                 name: monthName,
-                amount: monthSpent[0]?.total || 0
+                amount: monthSpent
             });
         }
+
 
         // Monthly search activity chart data
         const searchActivityData = [];
@@ -515,25 +515,15 @@ export const getUserDetailsStats = async (req, res) => {
             createdAt: search.createdAt
         }));
 
-        // Subscription status distribution (for pie chart)
-        const subscriptionStatusDist = await Subscription.aggregate([
-            { $match: { user: user._id } },
-            { $group: { _id: "$status", count: { $sum: 1 } } }
-        ]);
+        // Subscription status distribution
+        const subscriptionDistribution = user.planId ? [{
+            name: user.status === 'active' ? 'Active' : 'Pending',
+            value: 1,
+            color: user.status === 'active' ? '#10B981' : '#F59E0B'
+        }] : [];
 
-        const statusColors = {
-            'Active': '#10B981',
-            'Pending': '#F59E0B',
-            'Cancelled': '#EF4444',
-            'Completed': '#3B82F6',
-            'Expired': '#6B7280'
-        };
 
-        const subscriptionDistribution = subscriptionStatusDist.map(item => ({
-            name: item._id,
-            value: item.count,
-            color: statusColors[item._id] || '#8B5CF6'
-        }));
+
 
         res.status(200).json({
             user: {
@@ -552,7 +542,7 @@ export const getUserDetailsStats = async (req, res) => {
                 createdAt: user.createdAt
             },
             stats: {
-                totalSubscriptions,
+                totalSubscriptions: user.planId ? 1 : 0,
                 totalSpent,
                 totalSearches,
                 searchesThisMonth,

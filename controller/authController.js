@@ -3,7 +3,6 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import SibApiV3Sdk from "sib-api-v3-sdk";
 import { emailApi } from "../utils/mailer.js";
-import Subscription from "../models/subscriptionSchema.js";
 import Team from "../models/teamSchema.js";
 
 
@@ -67,12 +66,6 @@ export const login = async (req, res) => {
             return res.status(400).json({ message: "User not found" });
         }
 
-        if (user.status === "under_review") {
-            return res.status(403).json({ 
-                message: "Your account is currently under review. Please wait for admin approval (usually 2-4 hours)." 
-            });
-        }
-
         if (user.status === "blocked") {
             return res.status(403).json({ message: "Your account has been blocked. Please contact support." });
         }
@@ -83,7 +76,23 @@ export const login = async (req, res) => {
         }
 
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "5d" });
-        res.status(200).json({ user, token, message: "Login successful" });
+        
+        // Calculate subscription status
+        let isSubscription = user.status === 'active' && !!user.planId;
+        
+        // Check local team membership for subscription
+        if (!isSubscription) {
+            const teamWithSubscribedOwner = await Team.findOne({ members: user._id }).populate('owner').lean();
+            if (teamWithSubscribedOwner?.owner) {
+                isSubscription = teamWithSubscribedOwner.owner.status === 'active' && !!teamWithSubscribedOwner.owner.planId;
+            }
+        }
+
+        res.status(200).json({ 
+            user: { ...user.toObject(), isSubscription }, 
+            token, 
+            message: "Login successful" 
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -130,16 +139,13 @@ export const verifyToken = async (req, res) => {
         }
 
         // Check personal subscription first
-        const personalSub = await Subscription.exists({ user: decoded.id });
-
-        let isSubscription = !!personalSub;
+        let isSubscription = user.status === 'active' && !!user.planId;
 
         // If no personal subscription, check if user is a member of a team whose owner is subscribed
         if (!isSubscription) {
             const teamWithSubscribedOwner = await Team.findOne({ members: decoded.id }).populate('owner').lean();
             if (teamWithSubscribedOwner?.owner) {
-                const ownerSub = await Subscription.exists({ user: teamWithSubscribedOwner.owner._id });
-                isSubscription = !!ownerSub;
+                isSubscription = teamWithSubscribedOwner.owner.status === 'active' && !!teamWithSubscribedOwner.owner.planId;
             }
         }
 

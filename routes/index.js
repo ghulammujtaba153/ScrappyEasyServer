@@ -10,9 +10,8 @@ import dashboardRouter from "./dashboardRoutes.js";
 import adminDashboardRouter from "./adminDashboardRoutes.js";
 import automationRouter from "./automationRoutes.js";
 import whatsAppAccountRouter from "./whatsAppAccountRoutes.js";
-import packageRouter from "./packageRoutes.js";
-import subscriptionRouter from "./subscriptionRoutes.js";
 import wappRouter from "./whatsapp.routes.js";
+
 import wappMessageRouter from "./messageRoutes.js";
 import automateMessageRouter from "./automateMessageRoutes.js";
 import callRouter from "./callRoutes.js";
@@ -21,15 +20,14 @@ import userRouter from "./userRoutes.js";
 import screenshotRouter from "./screenshotRoutes.js";
 import proxyRouter from "./proxyRoutes.js";
 import supportRouter from "./supportRoutes.js";
-import stripeRouter from "./stripeRoutes.js";
 import locationRouter from "./locationRoutes.js";
 import collaborationRouter from "./collaborationRoutes.js";
 import qualifiedLeadsRouter from "./qualifiedLeadsRoutes.js";
 import teamRouter from "./teamRoutes.js";
 import teamDataRouter from "./teamDataRoutes.js";
 import notificationRouter from "./notificationRoutes.js";
-import lemonSqueezyRouter from "./lemonSqueezyRoutes.js";
 import mailRouter from "./mailRoutes.js";
+
 
 
 const router = express.Router();
@@ -45,9 +43,8 @@ router.use("/dashboard", dashboardRouter)
 router.use("/admin-dashboard", adminDashboardRouter)
 router.use("/automation", automationRouter);
 router.use("/whatsapp/account", whatsAppAccountRouter);
-router.use("/packages", packageRouter);
-router.use("/subscriptions", subscriptionRouter);
 router.use("/whatsapp", wappRouter);
+
 router.use("/message", wappMessageRouter);
 router.use("/automate", automateMessageRouter);
 router.use("/call", callRouter)
@@ -56,15 +53,14 @@ router.use("/user", userRouter);
 router.use("/screenshot", screenshotRouter);
 router.use("/proxy", proxyRouter);
 router.use("/support", supportRouter);
-router.use("/stripe", stripeRouter);
 router.use("/location", locationRouter);
 router.use("/collaboration", collaborationRouter);
 router.use("/qualified-leads", qualifiedLeadsRouter);
 router.use("/team", teamRouter);
 router.use("/team-data", teamDataRouter);
 router.use("/notifications", notificationRouter);
-router.use("/lemon-squeezy", lemonSqueezyRouter);
 router.use("/mailautomation", mailRouter);
+
 
 
 export default router;
