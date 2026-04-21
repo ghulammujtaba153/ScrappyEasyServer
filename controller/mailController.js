@@ -171,23 +171,28 @@ const performExtraction = async (url) => {
     return [...emails];
 }
 
-export const extractEmails = async (req,res)=>{
-    try{
-        const {url} = req.body;
+export const extractEmails = async (req, res) => {
+    try {
+        const { url, leadId } = req.body;
         const result = await performExtraction(url);
+
+        if (leadId && result.length > 0) {
+            await LeadData.findByIdAndUpdate(leadId, { emails: result });
+        }
+
         return res.json({
-            success:true,
-            data:{
-                emails:result,
-                count:result.length
+            success: true,
+            data: {
+                emails: result,
+                count: result.length
             }
         });
-    }catch(err){
+    } catch (err) {
         return res.json({
-            success:true,
-            data:{
-                emails:[],
-                count:0
+            success: true,
+            data: {
+                emails: [],
+                count: 0
             }
         });
     }

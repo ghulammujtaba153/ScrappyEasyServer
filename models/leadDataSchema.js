@@ -73,6 +73,15 @@ const leadDataSchema = new mongoose.Schema({
         type: String,
         default: []
     }],
+    // Social media links extracted from the website
+    socialMedia: {
+        facebook: { type: String, default: '' },
+        instagram: { type: String, default: '' },
+        linkedin: { type: String, default: '' },
+        twitter: { type: String, default: '' },
+        youtube: { type: String, default: '' },
+        tiktok: { type: String, default: '' }
+    },
     // Additional metadata from scraping
     // Additional metadata from scraping
     metadata: {
