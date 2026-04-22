@@ -1,6 +1,8 @@
 import User from "../models/userSchema.js";
 import Data from "../models/dataSchema.js";
-
+import LeadData from "../models/leadDataSchema.js";
+import QualifiedLeads from "../models/qualifiedLeadsSchema.js";
+import Team from "../models/teamSchema.js";
 
 // Get dashboard overview stats
 export const getAdminDashboardStats = async (req, res) => {
@@ -90,155 +92,7 @@ export const getAdminDashboardStats = async (req, res) => {
     }
 };
 
-// Get user growth chart data
-export const getUserGrowthData = async (req, res) => {
-    try {
-        const { period = 'monthly' } = req.query;
-        let months = 6;
-
-        if (period === 'weekly') months = 2;
-        else if (period === 'yearly') months = 12;
-
-        const data = [];
-        const now = new Date();
-
-        for (let i = months - 1; i >= 0; i--) {
-            const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-
-            const totalUsers = await User.countDocuments({ createdAt: { $lte: endDate } });
-            const newUsers = await User.countDocuments({
-                createdAt: { $gte: startDate, $lte: endDate }
-            });
-
-            const monthName = startDate.toLocaleString('default', { month: 'short' });
-            data.push({
-                name: monthName,
-                users: totalUsers,
-                newUsers: newUsers
-            });
-        }
-
-        res.status(200).json({ data });
-    } catch (error) {
-        console.error("Error fetching user growth data:", error);
-        res.status(500).json({ message: "Error fetching user growth data", error: error.message });
-    }
-};
-
-// Get revenue chart data
-export const getRevenueData = async (req, res) => {
-    try {
-        const { period = 'monthly' } = req.query;
-        let months = 6;
-
-        if (period === 'weekly') months = 2;
-        else if (period === 'yearly') months = 12;
-
-        const data = [];
-        const now = new Date();
-
-        for (let i = months - 1; i >= 0; i--) {
-            const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-
-            const revenueResult = await User.aggregate([
-                { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true } } },
-                { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
-            ]);
-
-            const monthName = startDate.toLocaleString('default', { month: 'short' });
-            const revenue = revenueResult[0]?.total || 0;
-
-
-            data.push({
-                name: monthName,
-                revenue: revenue,
-                expenses: Math.round(revenue * 0.3) // Estimated expenses as 30% of revenue
-            });
-        }
-
-        res.status(200).json({ data });
-    } catch (error) {
-        console.error("Error fetching revenue data:", error);
-        res.status(500).json({ message: "Error fetching revenue data", error: error.message });
-    }
-};
-
-// Get subscription distribution by package
-export const getSubscriptionDistribution = async (req, res) => {
-    try {
-        const distribution = await User.aggregate([
-            { $match: { status: 'active', planId: { $exists: true } } },
-            { $group: { _id: "$planName", value: { $sum: 1 } } },
-            {
-                $project: {
-                    name: "$_id",
-                    value: 1,
-                    _id: 0
-                }
-            }
-        ]);
-
-
-        // Add colors for each plan
-        const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
-        const dataWithColors = distribution.map((item, index) => ({
-            ...item,
-            name: item.name || 'Unknown Plan',
-            color: colors[index % colors.length]
-        }));
-
-        res.status(200).json({ data: dataWithColors });
-    } catch (error) {
-        console.error("Error fetching subscription distribution:", error);
-        res.status(500).json({ message: "Error fetching subscription distribution", error: error.message });
-    }
-};
-
-// Get user activity data
-export const getUserActivityData = async (req, res) => {
-    try {
-        const { period = 'monthly' } = req.query;
-        let months = 6;
-
-        if (period === 'weekly') months = 2;
-        else if (period === 'yearly') months = 12;
-
-        const data = [];
-        const now = new Date();
-
-        for (let i = months - 1; i >= 0; i--) {
-            const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-
-            // Count user signups as sessions proxy
-            const sessions = await User.countDocuments({
-                createdAt: { $gte: startDate, $lte: endDate }
-            });
-
-            // Count subscriptions (users with active plans) proxy
-            const interactions = await User.countDocuments({
-                createdAt: { $gte: startDate, $lte: endDate },
-                status: 'active',
-                planId: { $exists: true }
-            });
-
-
-            const monthName = startDate.toLocaleString('default', { month: 'short' });
-            data.push({
-                name: monthName,
-                sessions: sessions * 10, // Multiplier for better visualization
-                interactions: interactions * 5
-            });
-        }
-
-        res.status(200).json({ data });
-    } catch (error) {
-        console.error("Error fetching user activity data:", error);
-        res.status(500).json({ message: "Error fetching user activity data", error: error.message });
-    }
-};
+// ... (getUserGrowthData, getRevenueData, getSubscriptionDistribution, getUserActivityData)
 
 // Get all dashboard data in one call
 export const getAdminDashboardData = async (req, res) => {
@@ -253,7 +107,7 @@ export const getAdminDashboardData = async (req, res) => {
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
         const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
-        // Stats
+        // 1. User Stats
         const totalUsers = await User.countDocuments();
         const newUsersThisMonth = await User.countDocuments({ createdAt: { $gte: startOfMonth } });
         const usersLastMonth = await User.countDocuments({
@@ -263,6 +117,7 @@ export const getAdminDashboardData = async (req, res) => {
             ? Math.round(((newUsersThisMonth - usersLastMonth) / usersLastMonth) * 100)
             : (newUsersThisMonth > 0 ? 100 : 0);
 
+        // 2. Revenue Stats
         const revenueResult = await User.aggregate([
             { $match: { status: 'active', planAmount: { $exists: true } } },
             { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
@@ -283,6 +138,7 @@ export const getAdminDashboardData = async (req, res) => {
             ? Math.round(((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100)
             : (monthlyRevenue > 0 ? 100 : 0);
 
+        // 3. Subscription Stats
         const activeSubscriptions = await User.countDocuments({ status: 'active', planId: { $exists: true } });
         const subscriptionsThisMonth = await User.countDocuments({
             createdAt: { $gte: startOfMonth },
@@ -299,7 +155,7 @@ export const getAdminDashboardData = async (req, res) => {
             : (subscriptionsThisMonth > 0 ? 100 : 0);
 
 
-        // Data/Scraping Stats
+        // 4. Operation/Search Stats (Data model represents operations)
         const totalSearches = await Data.countDocuments();
         const searchesThisMonth = await Data.countDocuments({ createdAt: { $gte: startOfMonth } });
         const searchesLastMonth = await Data.countDocuments({
@@ -309,14 +165,25 @@ export const getAdminDashboardData = async (req, res) => {
             ? Math.round(((searchesThisMonth - searchesLastMonth) / searchesLastMonth) * 100)
             : (searchesThisMonth > 0 ? 100 : 0);
 
-        // Total records scraped
-        const totalRecordsResult = await Data.aggregate([
-            { $project: { recordCount: { $size: "$leads" } } },
-            { $group: { _id: null, total: { $sum: "$recordCount" } } }
-        ]);
-        const totalRecords = totalRecordsResult[0]?.total || 0;
+        // 5. Record/Lead Stats (LeadData model represents actual records)
+        const totalRecords = await LeadData.countDocuments();
+        
+        // Enrichment Stats
+        const totalEmailsDiscovered = await LeadData.countDocuments({ emails: { $not: { $size: 0 } } });
+        const totalSocialsDiscovered = await LeadData.countDocuments({
+            $or: [
+                { "socialMedia.facebook": { $ne: '' } },
+                { "socialMedia.instagram": { $ne: '' } },
+                { "socialMedia.linkedin": { $ne: '' } },
+                { "socialMedia.twitter": { $ne: '' } },
+                { "socialMedia.youtube": { $ne: '' } },
+                { "socialMedia.tiktok": { $ne: '' } }
+            ]
+        });
+        const verifiedWhatsApp = await LeadData.countDocuments({ whatsappStatus: 'verified' });
+        const interestedLeads = await LeadData.countDocuments({ status: 'interested' });
 
-        // Chart Data
+        // 6. Growth Chart Data (Last 6 months)
         const userGrowth = [];
         const revenue = [];
         const activity = [];
@@ -333,47 +200,36 @@ export const getAdminDashboardData = async (req, res) => {
             });
             userGrowth.push({ name: monthName, users: totalUsersUpToDate, newUsers: newUsersInMonth });
 
-            // Revenue
+            // Revenue calculation per month
             const revenueInMonth = await User.aggregate([
                 { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true } } },
                 { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
             ]);
-            const monthRevenue = revenueInMonth[0]?.total || 0;
             revenue.push({
                 name: monthName,
-                revenue: monthRevenue
+                revenue: revenueInMonth[0]?.total || 0
             });
 
-
-            // Activity - use Data model for scraping activity
-            const searches = await Data.countDocuments({
+            // Scraping Activity
+            const monthlySearches = await Data.countDocuments({
                 createdAt: { $gte: startDate, $lte: endDate }
             });
-            const recordsInMonth = await Data.aggregate([
-                { $match: { createdAt: { $gte: startDate, $lte: endDate } } },
-                { $project: { recordCount: { $size: "$leads" } } },
-                { $group: { _id: null, total: { $sum: "$recordCount" } } }
-            ]);
+            const monthlyRecords = await LeadData.countDocuments({
+                createdAt: { $gte: startDate, $lte: endDate }
+            });
             activity.push({
                 name: monthName,
-                searches: searches,
-                records: recordsInMonth[0]?.total || 0
+                searches: monthlySearches,
+                records: monthlyRecords
             });
         }
 
-        // Subscription Distribution
+        // 7. Subscription Distribution
         const distributionResult = await User.aggregate([
             { $match: { status: 'active', planId: { $exists: true } } },
             { $group: { _id: "$planName", value: { $sum: 1 } } },
-            {
-                $project: {
-                    name: "$_id",
-                    value: 1,
-                    _id: 0
-                }
-            }
+            { $project: { name: "$_id", value: 1, _id: 0 } }
         ]);
-
 
         const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
         const subscriptions = distributionResult.map((item, index) => ({
@@ -392,7 +248,11 @@ export const getAdminDashboardData = async (req, res) => {
                 subscriptionGrowthPercent,
                 totalSearches,
                 searchGrowthPercent,
-                totalRecords
+                totalRecords,
+                totalEmailsDiscovered,
+                totalSocialsDiscovered,
+                verifiedWhatsApp,
+                interestedLeads
             },
             chartData: {
                 userGrowth,
