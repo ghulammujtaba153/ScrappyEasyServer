@@ -92,7 +92,113 @@ export const getAdminDashboardStats = async (req, res) => {
     }
 };
 
-// ... (getUserGrowthData, getRevenueData, getSubscriptionDistribution, getUserActivityData)
+// Get user growth data for charts
+export const getUserGrowthData = async (req, res) => {
+    try {
+        const months = 6;
+        const now = new Date();
+        const userGrowth = [];
+
+        for (let i = months - 1; i >= 0; i--) {
+            const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+            const monthName = startDate.toLocaleString('default', { month: 'short' });
+
+            const totalUsersUpToDate = await User.countDocuments({ createdAt: { $lte: endDate } });
+            const newUsersInMonth = await User.countDocuments({
+                createdAt: { $gte: startDate, $lte: endDate }
+            });
+            userGrowth.push({ name: monthName, users: totalUsersUpToDate, newUsers: newUsersInMonth });
+        }
+
+        res.status(200).json({ success: true, data: userGrowth });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Get revenue data for charts
+export const getRevenueData = async (req, res) => {
+    try {
+        const months = 6;
+        const now = new Date();
+        const revenue = [];
+
+        for (let i = months - 1; i >= 0; i--) {
+            const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+            const monthName = startDate.toLocaleString('default', { month: 'short' });
+
+            const revenueInMonth = await User.aggregate([
+                { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true } } },
+                { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
+            ]);
+
+            revenue.push({
+                name: monthName,
+                revenue: revenueInMonth[0]?.total || 0
+            });
+        }
+
+        res.status(200).json({ success: true, data: revenue });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Get subscription distribution data
+export const getSubscriptionDistribution = async (req, res) => {
+    try {
+        const distributionResult = await User.aggregate([
+            { $match: { status: 'active', planId: { $exists: true } } },
+            { $group: { _id: "$planName", value: { $sum: 1 } } },
+            { $project: { name: "$_id", value: 1, _id: 0 } }
+        ]);
+
+        const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
+        const subscriptions = distributionResult.map((item, index) => ({
+            name: item.name || 'Unknown Plan',
+            value: item.value,
+            color: colors[index % colors.length]
+        }));
+
+        res.status(200).json({ success: true, data: subscriptions });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Get user activity data (scrapes/searches)
+export const getUserActivityData = async (req, res) => {
+    try {
+        const months = 6;
+        const now = new Date();
+        const activity = [];
+
+        for (let i = months - 1; i >= 0; i--) {
+            const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+            const monthName = startDate.toLocaleString('default', { month: 'short' });
+
+            const monthlySearches = await Data.countDocuments({
+                createdAt: { $gte: startDate, $lte: endDate }
+            });
+            const monthlyRecords = await LeadData.countDocuments({
+                createdAt: { $gte: startDate, $lte: endDate }
+            });
+
+            activity.push({
+                name: monthName,
+                searches: monthlySearches,
+                records: monthlyRecords
+            });
+        }
+
+        res.status(200).json({ success: true, data: activity });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
 
 // Get all dashboard data in one call
 export const getAdminDashboardData = async (req, res) => {
