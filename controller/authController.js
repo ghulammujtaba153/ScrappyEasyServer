@@ -5,6 +5,7 @@ import { sendMail } from "../utils/mailer.js";
 import Team from "../models/teamSchema.js";
 import { getAdminInviteTemplate, getAdminInviteText } from "../utils/templates/adminInvite.js";
 import { getSubscriptionActiveTemplate, getSubscriptionActiveText } from "../utils/templates/subscription.js";
+import { getWelcomeTemplate, getWelcomeText } from "../utils/templates/welcome.js";
 
 
 export const register = async (req, res) => {
@@ -46,6 +47,19 @@ export const register = async (req, res) => {
         };
 
         const user = await User.create(userData);
+        
+        // Send Welcome Email
+        try {
+            await sendMail({
+                to: user.email,
+                subject: "Welcome to Map Harvest!",
+                html: getWelcomeTemplate(user.name),
+                text: getWelcomeText(user.name),
+            });
+            console.log(`✅ Welcome email sent to ${user.email} after registration`);
+        } catch (emailErr) {
+            console.error("❌ Failed to send welcome email after registration:", emailErr);
+        }
         
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "5d" });
 
@@ -106,7 +120,37 @@ export const updateUser = async (req, res) => {
             const hashedPassword = await bcrypt.hash(req.body.password, 10);
             req.body.password = hashedPassword;
         }
+
+        // Get current user data to check for status change
+        const oldUser = await User.findById(req.params.id);
+        if (!oldUser) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
         const user = await User.findByIdAndUpdate(req.params.id, req.body, { new: true });
+
+        // If status is changed to active, send the activation email
+        if (req.body.status === 'active' && oldUser.status !== 'active') {
+            try {
+                const loginLink = `${process.env.CLIENT_URL}/login`;
+                await sendMail({
+                    to: user.email,
+                    subject: "Your Map Harvest Subscription is Now Active!",
+                    html: getSubscriptionActiveTemplate(
+                        user.name, 
+                        user.planName, 
+                        user.planAmount, 
+                        user.planExpiry, 
+                        loginLink
+                    ),
+                    text: getSubscriptionActiveText(user.name, user.planName),
+                });
+                console.log(`✅ Activation email sent to ${user.email} via updateUser`);
+            } catch (emailError) {
+                console.error("❌ Failed to send activation email in updateUser:", emailError);
+            }
+        }
+
         res.status(200).json({ user });
     } catch (error) {
         res.status(500).json({ error: error.message });
