@@ -11,6 +11,9 @@ import router from "./routes/index.js";
 import whatsappController from "./controller/whatsAppVerification.js";
 import setupSocketIO from "./services/socket.service.js";
 // import { setupMediaStream } from "./utils/mediaStream.js"; // Disabled: using text-based voice approach
+import dns from "node:dns/promises";
+dns.setServers(["1.1.1.1"]);
+
 
 dotenv.config();
 
@@ -25,7 +28,7 @@ app.set("trust proxy", 1);
 
 // Define allowed origins for CORS
 const allowedOrigins = [
-   'http://localhost:5173',
+   process.env.CLIENT_URL,
    'http://localhost:3000',
    'http://localhost:5000',
    'http://127.0.0.1:5173',

@@ -1,7 +1,7 @@
 import Otp from "../models/otpSchema.js";
 import User from "../models/userSchema.js";
-import { emailApi } from "../utils/mailer.js";
-import { getOtpEmailTemplate, getOtpEmailText } from "../utils/otpTemplate.js";
+import { sendMail } from "../utils/mailer.js";
+import { getOtpEmailTemplate, getOtpEmailText } from "../utils/templates/otp.js";
 
 export const generateOtp = async (req, res) => {
     try {
@@ -37,28 +37,15 @@ export const generateOtp = async (req, res) => {
             await Otp.create({ email, otp });
         }
 
-        // Prepare email sender details
-        const sender = {
-            name: process.env.BREVO_SENDER_NAME || "Scraper Dashboard",
-            email: process.env.BREVO_SENDER_EMAIL || process.env.BREVO_FROM || "no-reply@example.com",
-        };
-
-        // Prepare email payload
-        const sendSmtpEmail = {
-            subject: "Your OTP Verification Code",
-            sender,
-            to: [{
-                email,
-                name: user?.name || undefined
-            }],
-            htmlContent: getOtpEmailTemplate(otp, user?.name),
-            textContent: getOtpEmailText(otp, user?.name),
-        };
-
-        // Send email via Brevo
+        // Send email via Nodemailer
         try {
-            const response = await emailApi.sendTransacEmail(sendSmtpEmail);
-            console.log("✅ OTP email sent successfully:", response);
+            const response = await sendMail({
+                to: email,
+                subject: "Your OTP Verification Code",
+                html: getOtpEmailTemplate(otp, user?.name),
+                text: getOtpEmailText(otp, user?.name),
+            });
+            console.log("✅ OTP email sent successfully:", response.messageId);
 
             res.status(200).json({
                 message: "OTP generated and sent successfully",

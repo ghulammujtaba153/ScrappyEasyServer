@@ -28,7 +28,7 @@ export const createCheckout = async (req, res) => {
                             }
                         },
                         product_options: {
-                            redirect_url: process.env.FRONTEND_URL || 'http://localhost:5173'
+                            redirect_url: process.env.CLIENT_URL
                         }
                     },
                     relationships: {

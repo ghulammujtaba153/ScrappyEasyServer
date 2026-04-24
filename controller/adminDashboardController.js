@@ -28,24 +28,24 @@ export const getAdminDashboardStats = async (req, res) => {
 
         // Total Revenue (Sum of planAmount from all active users)
         const revenueResult = await User.aggregate([
-            { $match: { status: 'active', planAmount: { $exists: true } } },
-            { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
+            { $match: { status: 'active', planAmount: { $exists: true, $ne: "" } } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
         ]);
         const totalRevenue = revenueResult[0]?.total || 0;
 
 
         // Revenue this month (Users who upgraded/registered this month)
         const revenueThisMonth = await User.aggregate([
-            { $match: { createdAt: { $gte: startOfMonth }, status: 'active', planAmount: { $exists: true } } },
-            { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
+            { $match: { createdAt: { $gte: startOfMonth }, status: 'active', planAmount: { $exists: true, $ne: "" } } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
         ]);
         const monthlyRevenue = revenueThisMonth[0]?.total || 0;
 
 
         // Revenue last month for comparison
         const revenueLastMonth = await User.aggregate([
-            { $match: { createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, status: 'active', planAmount: { $exists: true } } },
-            { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
+            { $match: { createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, status: 'active', planAmount: { $exists: true, $ne: "" } } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
         ]);
         const lastMonthRevenue = revenueLastMonth[0]?.total || 0;
 
@@ -130,8 +130,8 @@ export const getRevenueData = async (req, res) => {
             const monthName = startDate.toLocaleString('default', { month: 'short' });
 
             const revenueInMonth = await User.aggregate([
-                { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true } } },
-                { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
+                { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true, $ne: "" } } },
+                { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
             ]);
 
             revenue.push({
@@ -223,20 +223,36 @@ export const getAdminDashboardData = async (req, res) => {
             ? Math.round(((newUsersThisMonth - usersLastMonth) / usersLastMonth) * 100)
             : (newUsersThisMonth > 0 ? 100 : 0);
 
-        // 2. Revenue Stats
+        // 2. Revenue Stats (Sum of planAmount from all active users with valid plan)
         const revenueResult = await User.aggregate([
-            { $match: { status: 'active', planAmount: { $exists: true } } },
-            { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
+            { $match: { 
+                status: 'active', 
+                planAmount: { $exists: true, $ne: "" },
+                $or: [
+                    { planExpiry: { $exists: false } },
+                    { planExpiry: { $gte: now } }
+                ]
+            } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
         ]);
         const totalRevenue = revenueResult[0]?.total || 0;
 
+        // Note: For monthly growth calculations using User model, we look at activation month
         const revenueThisMonthResult = await User.aggregate([
-            { $match: { createdAt: { $gte: startOfMonth }, status: 'active', planAmount: { $exists: true } } },
-            { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
+            { $match: { 
+                createdAt: { $gte: startOfMonth }, 
+                status: 'active', 
+                planAmount: { $exists: true, $ne: "" } 
+            } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
         ]);
         const revenueLastMonthResult = await User.aggregate([
-            { $match: { createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, status: 'active', planAmount: { $exists: true } } },
-            { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
+            { $match: { 
+                createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, 
+                status: 'active', 
+                planAmount: { $exists: true, $ne: "" } 
+            } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
         ]);
         const monthlyRevenue = revenueThisMonthResult[0]?.total || 0;
         const lastMonthRevenue = revenueLastMonthResult[0]?.total || 0;
@@ -244,17 +260,25 @@ export const getAdminDashboardData = async (req, res) => {
             ? Math.round(((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100)
             : (monthlyRevenue > 0 ? 100 : 0);
 
-        // 3. Subscription Stats
-        const activeSubscriptions = await User.countDocuments({ status: 'active', planId: { $exists: true } });
+        // 3. Subscription Stats (Check through User schema as requested)
+        const activeSubscriptions = await User.countDocuments({ 
+            status: 'active', 
+            planId: { $exists: true, $ne: "" },
+            $or: [
+                { planExpiry: { $exists: false } },
+                { planExpiry: { $gte: now } }
+            ]
+        });
+        
         const subscriptionsThisMonth = await User.countDocuments({
             createdAt: { $gte: startOfMonth },
             status: 'active',
-            planId: { $exists: true }
+            planId: { $exists: true, $ne: "" }
         });
         const subscriptionsLastMonth = await User.countDocuments({
             createdAt: { $gte: startOfLastMonth, $lt: startOfMonth },
             status: 'active',
-            planId: { $exists: true }
+            planId: { $exists: true, $ne: "" }
         });
         const subscriptionGrowthPercent = subscriptionsLastMonth > 0
             ? Math.round(((subscriptionsThisMonth - subscriptionsLastMonth) / subscriptionsLastMonth) * 100)
@@ -271,8 +295,15 @@ export const getAdminDashboardData = async (req, res) => {
             ? Math.round(((searchesThisMonth - searchesLastMonth) / searchesLastMonth) * 100)
             : (searchesThisMonth > 0 ? 100 : 0);
 
-        // 5. Record/Lead Stats (LeadData model represents actual records)
+        // 5. Record/Lead Stats (Check through LeadData schema as requested)
         const totalRecords = await LeadData.countDocuments();
+        const recordsThisMonth = await LeadData.countDocuments({ createdAt: { $gte: startOfMonth } });
+        const recordsLastMonth = await LeadData.countDocuments({ 
+            createdAt: { $gte: startOfLastMonth, $lt: startOfMonth } 
+        });
+        const recordGrowthPercent = recordsLastMonth > 0
+            ? Math.round(((recordsThisMonth - recordsLastMonth) / recordsLastMonth) * 100)
+            : (recordsThisMonth > 0 ? 100 : 0);
         
         // Enrichment Stats
         const totalEmailsDiscovered = await LeadData.countDocuments({ emails: { $not: { $size: 0 } } });
@@ -308,8 +339,8 @@ export const getAdminDashboardData = async (req, res) => {
 
             // Revenue calculation per month
             const revenueInMonth = await User.aggregate([
-                { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true } } },
-                { $group: { _id: null, total: { $sum: { $convert: { input: { $replaceAll: { input: "$planAmount", find: "$", replacement: "" } }, to: "double", onError: 0, onNull: 0 } } } } }
+                { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true, $ne: "" } } },
+                { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
             ]);
             revenue.push({
                 name: monthName,
@@ -332,7 +363,14 @@ export const getAdminDashboardData = async (req, res) => {
 
         // 7. Subscription Distribution
         const distributionResult = await User.aggregate([
-            { $match: { status: 'active', planId: { $exists: true } } },
+            { $match: { 
+                status: 'active', 
+                planId: { $exists: true, $ne: "" },
+                $or: [
+                    { planExpiry: { $exists: false } },
+                    { planExpiry: { $gte: now } }
+                ]
+            } },
             { $group: { _id: "$planName", value: { $sum: 1 } } },
             { $project: { name: "$_id", value: 1, _id: 0 } }
         ]);
@@ -355,6 +393,7 @@ export const getAdminDashboardData = async (req, res) => {
                 totalSearches,
                 searchGrowthPercent,
                 totalRecords,
+                recordGrowthPercent,
                 totalEmailsDiscovered,
                 totalSocialsDiscovered,
                 verifiedWhatsApp,
@@ -527,5 +566,81 @@ export const getUserDetailsStats = async (req, res) => {
     } catch (error) {
         console.error("Error fetching user details:", error);
         res.status(500).json({ message: "Error fetching user details", error: error.message });
+    }
+};
+
+// Get list of all users with subscriptions
+export const getAllSubscriptions = async (req, res) => {
+    try {
+        const subscriptions = await User.find({ planId: { $exists: true, $ne: "" } })
+            .select('name email planName planAmount planExpiry status createdAt paymentScreenshot')
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({ success: true, subscriptions });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Get detailed subscription analytics
+export const getSubscriptionAnalytics = async (req, res) => {
+    try {
+        const now = new Date();
+        const months = 6;
+        const revenueTrend = [];
+        
+        // 1. Revenue Trend (Last 6 months)
+        for (let i = months - 1; i >= 0; i--) {
+            const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+            const monthName = startDate.toLocaleString('default', { month: 'short' });
+
+            const revenueInMonth = await User.aggregate([
+                { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true, $ne: "" } } },
+                { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
+            ]);
+
+            revenueTrend.push({
+                name: monthName,
+                revenue: revenueInMonth[0]?.total || 0
+            });
+        }
+
+        // 2. Status Distribution
+        const distributionResult = await User.aggregate([
+            { $match: { planId: { $exists: true, $ne: "" } } },
+            { $group: { _id: "$status", value: { $sum: 1 } } },
+            { $project: { name: "$_id", value: 1, _id: 0 } }
+        ]);
+
+        const statusDistribution = distributionResult.map(item => ({
+            name: item.name.charAt(0).toUpperCase() + item.name.slice(1).replace('_', ' '),
+            value: item.value
+        }));
+
+        // 3. Overall Stats
+        const totalUsersWithPlan = await User.countDocuments({ planId: { $exists: true, $ne: "" } });
+        const activeSubscriptions = await User.countDocuments({ status: 'active', planId: { $exists: true, $ne: "" } });
+        const underReviewCount = await User.countDocuments({ status: 'under_review', planId: { $exists: true, $ne: "" } });
+        
+        const totalRevenueResult = await User.aggregate([
+            { $match: { status: 'active', planAmount: { $exists: true, $ne: "" } } },
+            { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
+        ]);
+        const totalRevenue = totalRevenueResult[0]?.total || 0;
+
+        res.status(200).json({
+            success: true,
+            revenueTrend,
+            statusDistribution,
+            stats: {
+                totalUsersWithPlan,
+                activeSubscriptions,
+                underReviewCount,
+                totalRevenue
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
     }
 };

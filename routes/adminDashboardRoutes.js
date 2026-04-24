@@ -6,7 +6,9 @@ import {
     getRevenueData,
     getSubscriptionDistribution,
     getUserActivityData,
-    getUserDetailsStats
+    getUserDetailsStats,
+    getAllSubscriptions,
+    getSubscriptionAnalytics
 } from "../controller/adminDashboardController.js";
 import { authMiddleware, isAdmin } from "../middleware/authMiddleware.js";
 
@@ -23,6 +25,8 @@ router.get("/stats", getAdminDashboardStats);
 router.get("/user-growth", getUserGrowthData);
 router.get("/revenue", getRevenueData);
 router.get("/subscriptions", getSubscriptionDistribution);
+router.get("/subscriptions/list", getAllSubscriptions);
+router.get("/subscriptions/analytics", getSubscriptionAnalytics);
 router.get("/activity", getUserActivityData);
 
 // User details endpoint

@@ -50,8 +50,8 @@ export const createCheckoutSession = async (req, res) => {
                     quantity: 1,
                 },
             ],
-            success_url: `${process.env.STRIPE_REDIRECT_URL || 'http://localhost:5173'}/dashboard/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${process.env.STRIPE_REDIRECT_URL || 'http://localhost:5173'}/dashboard/subscription`,
+            success_url: `${process.env.CLIENT_URL}/dashboard/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${process.env.CLIENT_URL}/dashboard/subscription`,
             metadata: {
                 userId: userId?.toString() || '',
                 packageId: packageId || '',

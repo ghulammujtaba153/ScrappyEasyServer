@@ -1,8 +1,9 @@
 import crypto from "crypto";
 import Team from "../models/teamSchema.js";
 import User from "../models/userSchema.js";
-import { emailApi } from "../utils/mailer.js";
+import { sendMail } from "../utils/mailer.js";
 import { sendNotification } from "./notificationController.js";
+import { getTeamInviteTemplate, getTeamInviteText } from "../utils/templates/teamInvite.js";
 
 const MAX_MEMBERS = 2;
 
@@ -44,19 +45,12 @@ const processTeamMembers = async (emails, ownerId, teamName, req, oldMemberIds =
             memberIds.push(user._id);
 
             // Send invitation email
-            await emailApi.sendTransacEmail({
+            const inviteLink = `${process.env.FRONTEND_URL}/invite/confirm?token=${token}`;
+            await sendMail({
+                to: user.email,
                 subject: `Invitation to join team "${teamName}"`,
-                sender: { name: "Scraper Dashboard", email: process.env.BREVO_SENDER_EMAIL || "no-reply@scraper.com" },
-                to: [{ email: user.email }],
-                htmlContent: `
-                    <div style="font-family: sans-serif; padding: 20px; color: #333;">
-                        <h2>Welcome!</h2>
-                        <p>${senderName} has invited you to join their team <strong>"${teamName}"</strong> on our platform.</p>
-                        <p>To accept this invitation and set up your account, please click the link below:</p>
-                        <a href="${process.env.FRONTEND_URL}/invite/confirm?token=${token}" style="display: inline-block; padding: 10px 20px; background-color: #0F792C; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px;">Join Team</a>
-                        <p style="margin-top: 30px; font-size: 12px; color: #777;">This link will expire in 7 days.</p>
-                    </div>
-                `
+                html: getTeamInviteTemplate(senderName, teamName, inviteLink),
+                text: getTeamInviteText(senderName, teamName, inviteLink),
             }).catch(err => console.error("Invite email fail:", err));
         }
     }
