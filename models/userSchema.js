@@ -22,6 +22,11 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: false
     },
+    userType: {
+        type: String,
+        enum: ["local", "INTL"],
+        default: "local"
+    },
     status: {
         type: String,
         enum: ["active", "invited", "blocked", "under_review"],

@@ -28,6 +28,7 @@ import teamDataRouter from "./teamDataRoutes.js";
 import notificationRouter from "./notificationRoutes.js";
 import mailRouter from "./mailRoutes.js";
 import socialMediaRouter from "./socialMediaRoutes.js";
+import campaignRouter from "./campaignRoutes.js";
 
 
 
@@ -63,6 +64,7 @@ router.use("/team-data", teamDataRouter);
 router.use("/notifications", notificationRouter);
 router.use("/mailautomation", mailRouter);
 router.use("/social-media", socialMediaRouter);
+router.use("/campaigns", campaignRouter);
 
 
 export default router;
