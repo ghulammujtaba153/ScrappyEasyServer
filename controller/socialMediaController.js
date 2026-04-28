@@ -1,6 +1,9 @@
 import axios from "axios";
 import Joi from "joi";
 import LeadData from "../models/leadDataSchema.js";
+import { chromium } from "playwright";
+import path from "path";
+import fs from "fs";
 
 const MAX_PAGES = 3;
 
@@ -246,5 +249,65 @@ export const bulkExtractSocials = async (req, res) => {
     } catch (error) {
         console.error("Bulk extraction error:", error);
         res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+async function discoverPersonnel(companyName, website) {
+    if (!website || website.includes('google.com')) return [];
+    
+    let browser;
+    try {
+        console.log(`🔍 [PERSONNEL DISCOVERY] Starting Website-Only Scan for: ${companyName}`);
+        browser = await chromium.launch({ 
+            headless: true,
+            args: ["--no-sandbox", "--disable-setuid-sandbox"]
+        });
+        const context = await browser.newContext({
+            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport: { width: 1280, height: 800 }
+        });
+
+        const page = await context.newPage();
+        
+        // Try Company Website (Bypasses search engine CAPTCHAs)
+        let allPeople = await searchWebsitePeople(page, website);
+        
+        return allPeople;
+    } catch (error) {
+        console.error("❌ [PERSONNEL DISCOVERY] Fatal Error:", error);
+        return [];
+    } finally {
+        if (browser) await browser.close();
+    }
+}
+
+export const getLinkedInInfo = async (req, res) => {
+    try {
+        const { leadId, website, companyName } = req.body;
+        
+        console.log(`\n--- [PERSONNEL REQUEST START] ---`);
+        console.log(`Lead ID: ${leadId}`);
+        console.log(`Company: ${companyName}`);
+        console.log(`Website: ${website}`);
+
+        if (!leadId) {
+            console.log(`❌ [PERSONNEL REQUEST ERROR] Missing Lead ID`);
+            return res.status(400).json({ success: false, message: "Lead ID is required" });
+        }
+
+        console.log(`🚀 [PERSONNEL REQUEST] Discovering Team from Website...`);
+        const people = await discoverPersonnel(companyName, website);
+
+        console.log(`📊 [PERSONNEL REQUEST END] Found ${people.length} team members`);
+        console.log(`-------------------------------\n`);
+
+        return res.json({
+            success: true,
+            data: people
+        });
+
+    } catch (error) {
+        console.error("❌ [PERSONNEL REQUEST FATAL ERROR]:", error);
+        res.status(500).json({ success: false, message: error.message });
     }
 };
