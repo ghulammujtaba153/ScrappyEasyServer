@@ -9,6 +9,9 @@ import path from 'path';
 import connectDB from "./database/db.js";
 import router from "./routes/index.js";
 import whatsappController from "./controller/whatsAppVerification.js";
+import Campaign from "./models/campaignSchema.js";
+import { sendCampaignById } from "./controller/campaignController.js";
+import cron from 'node-cron';
 import setupSocketIO from "./services/socket.service.js";
 // import { setupMediaStream } from "./utils/mediaStream.js"; // Disabled: using text-based voice approach
 import dns from "node:dns/promises";
@@ -174,3 +177,33 @@ server.listen(PORT, async () => {
        console.error("❌ WhatsApp auto-restoration issue:", error.message || error);
    }
 });
+
+   /* ======================
+      SCHEDULED CAMPAIGN SENDER (node-cron)
+      Uses a cron expression to check for campaigns with `status: 'Scheduled'` and `scheduledAt <= now`.
+      Runs every minute and triggers `sendCampaignById` for each due campaign.
+   ====================== */
+
+   const processScheduledCampaigns = async () => {
+      try {
+         const now = new Date();
+         const due = await Campaign.find({ status: 'Scheduled', scheduledAt: { $lte: now } });
+         if (due && due.length) {
+            console.log(`Found ${due.length} scheduled campaign(s) due. Triggering sends...`);
+            for (const camp of due) {
+               // Fire and forget; sendCampaignById will set status to 'Sending'
+               sendCampaignById(camp._id).catch(err => console.error('Scheduled send error:', err.message || err));
+            }
+         }
+      } catch (error) {
+         console.error('Error processing scheduled campaigns:', error.message || error);
+      }
+   };
+
+   // Schedule job to run every minute using cron expression
+   cron.schedule('*/1 * * * *', () => {
+      processScheduledCampaigns().catch(err => console.error('Cron job error:', err.message || err));
+   });
+
+   // Run once at startup shortly after server starts
+   setTimeout(processScheduledCampaigns, 5000);

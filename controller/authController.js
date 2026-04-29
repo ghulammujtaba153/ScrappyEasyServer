@@ -6,6 +6,8 @@ import Team from "../models/teamSchema.js";
 import { getAdminInviteTemplate, getAdminInviteText } from "../utils/templates/adminInvite.js";
 import { getSubscriptionActiveTemplate, getSubscriptionActiveText } from "../utils/templates/subscription.js";
 import { getWelcomeTemplate, getWelcomeText } from "../utils/templates/welcome.js";
+import { getInternationalWelcomeTemplate, getInternationalWelcomeText } from "../utils/templates/internationalWelcome.js";
+import { getInternationalPaymentTemplate, getInternationalPaymentText } from "../utils/templates/internationalPayment.js";
 
 
 export const register = async (req, res) => {
@@ -48,15 +50,23 @@ export const register = async (req, res) => {
 
         const user = await User.create(userData);
         
-        // Send Welcome Email
+        const isInternational = String(req.body.userType || "local").toLowerCase() === "intl";
+
+        // Send a region-specific welcome email after registration
         try {
             await sendMail({
                 to: user.email,
-                subject: "Welcome to Map Harvest!",
-                html: getWelcomeTemplate(user.name),
-                text: getWelcomeText(user.name),
+                subject: isInternational
+                    ? "Welcome to Map Harvest!"
+                    : "Welcome to Map Harvest!",
+                html: isInternational
+                    ? getInternationalWelcomeTemplate(user.name)
+                    : getWelcomeTemplate(user.name),
+                text: isInternational
+                    ? getInternationalWelcomeText(user.name)
+                    : getWelcomeText(user.name),
             });
-            console.log(`✅ Welcome email sent to ${user.email} after registration`);
+            console.log(`✅ ${isInternational ? "international welcome" : "welcome"} email sent to ${user.email} after registration`);
         } catch (emailErr) {
             console.error("❌ Failed to send welcome email after registration:", emailErr);
         }
@@ -66,7 +76,9 @@ export const register = async (req, res) => {
         res.status(201).json({ 
             user: { name: user.name, email: user.email, status: user.status }, 
             token,
-            message: "Registration successful! Your account is now under review." 
+            message: isInternational
+                ? "Registration successful! Your account is under review. Our admin team will email you the payment link shortly."
+                : "Registration successful! Your account is now under review." 
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -152,6 +164,40 @@ export const updateUser = async (req, res) => {
         }
 
         res.status(200).json({ user });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+export const sendInternationalPaymentLink = async (req, res) => {
+    try {
+        const { paymentLink } = req.body;
+        const user = await User.findById(req.params.id);
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        if (String(user.userType || "").toLowerCase() !== "intl") {
+            return res.status(400).json({ message: "Payment link emails can only be sent to international users" });
+        }
+
+        const finalLink = paymentLink || process.env.INTERNATIONAL_PAYMENT_LINK;
+        if (!finalLink) {
+            return res.status(400).json({ message: "Payment link is required" });
+        }
+
+        await sendMail({
+            to: user.email,
+            subject: "Complete Your International Payment",
+            html: getInternationalPaymentTemplate(user.name, finalLink),
+            text: getInternationalPaymentText(user.name, finalLink),
+        });
+
+        res.status(200).json({
+            success: true,
+            message: "International payment link email sent successfully",
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
