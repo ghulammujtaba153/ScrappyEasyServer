@@ -87,8 +87,8 @@ const io = setupSocketIO(server);
 
 
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // limit each IP to 100 requests per window
+  windowMs: 1 * 60 * 1000, // 1 minutes
+  max: 200, // limit each IP to 100 requests per window
   message: {
     success: false,
     message: "Too many requests from this IP, please try again after 15 minutes."

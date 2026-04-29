@@ -237,17 +237,24 @@ export const setupSocketIO = (server) => {
 
         // User disconnects
         socket.on("disconnect", () => {
-            // Find and remove user by socket id
-            for (const [odId, user] of onlineUsers.entries()) {
+            let disconnectedUser = null;
+            let userIdToRemove = null;
+
+            for (const [userId, user] of onlineUsers.entries()) {
                 if (user.socketId === socket.id) {
-                    console.log(`👋 User offline: ${user.name}`);
-                    onlineUsers.delete(odId);
+                    disconnectedUser = user;
+                    userIdToRemove = userId;
                     break;
                 }
             }
-            
-            // Broadcast updated online users
-            io.emit("online_users_updated", getOnlineUsersList());
+
+            if (disconnectedUser) {
+                console.log(`👋 Socket disconnected: ${socket.id} (User: ${disconnectedUser.name})`);
+                onlineUsers.delete(userIdToRemove);
+                
+                // Broadcast updated online users
+                io.emit("online_users_updated", getOnlineUsersList());
+            }
         });
     });
 

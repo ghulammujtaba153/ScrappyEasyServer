@@ -12,15 +12,25 @@ if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
   console.error("❌ CRITICAL: EMAIL_USER or EMAIL_PASS is missing in environment variables!");
 }
 
-const transporter = createTransport({
-  host: "smtp.hostinger.com",
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+// Configure Hostinger SMTP transporter
+    const transporter = createTransport({
+      host: "smtp.hostinger.com",
+      port: 465,
+      secure: true,
+      auth: {
+        user: process.env.EMAIL_USER, // your full email (e.g. info@yourdomain.com)
+        pass: process.env.EMAIL_PASS, // email password from Hostinger
+      },
+    });
+
+    // Optional: verify SMTP connection
+    transporter.verify((err, success) => {
+      if (err) {
+        console.error("SMTP Connection Error:", err);
+      } else {
+        console.log("SMTP Server Ready");
+      }
+    });
 
 /**
  * Send email using Nodemailer

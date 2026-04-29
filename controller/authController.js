@@ -128,33 +128,55 @@ export const login = async (req, res) => {
 
 export const updateUser = async (req, res) => {
     try {
-        if (req.body.password) {
-            const hashedPassword = await bcrypt.hash(req.body.password, 10);
-            req.body.password = hashedPassword;
-        }
+        const { id } = req.params;
 
-        // Get current user data to check for status change
-        const oldUser = await User.findById(req.params.id);
+        // Find existing user
+        const oldUser = await User.findById(id);
         if (!oldUser) {
-            return res.status(404).json({ message: "User not found" });
+            return res.status(404).json({ success: false, message: "User not found" });
         }
 
-        const user = await User.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        // Whitelist only safe, user-editable fields
+        const allowedFields = ['name', 'email', 'country', 'aboutUser', 'password', 'gender', 'dob', 'areaOfInterest'];
+        const updateData = {};
 
-        // If status is changed to active, send the activation email
+        for (const field of allowedFields) {
+            if (req.body[field] !== undefined) {
+                updateData[field] = req.body[field];
+            }
+        }
+
+        // If no valid fields provided, reject early
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({ success: false, message: "No valid fields to update" });
+        }
+
+        // Check email uniqueness if email is being changed
+        if (updateData.email && updateData.email !== oldUser.email) {
+            const emailExists = await User.findOne({ email: updateData.email, _id: { $ne: id } });
+            if (emailExists) {
+                return res.status(400).json({ success: false, message: "Email is already in use by another account" });
+            }
+        }
+
+        // Hash password if being updated
+        if (updateData.password) {
+            if (updateData.password.length < 6) {
+                return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
+            }
+            updateData.password = await bcrypt.hash(updateData.password, 10);
+        }
+
+        const user = await User.findByIdAndUpdate(id, updateData, { new: true }).select('-password');
+
+        // If status changed to active (admin-only path, not reachable here but kept for safety)
         if (req.body.status === 'active' && oldUser.status !== 'active') {
             try {
                 const loginLink = `${process.env.CLIENT_URL}/login`;
                 await sendMail({
                     to: user.email,
                     subject: "Your Map Harvest Subscription is Now Active!",
-                    html: getSubscriptionActiveTemplate(
-                        user.name, 
-                        user.planName, 
-                        user.planAmount, 
-                        user.planExpiry, 
-                        loginLink
-                    ),
+                    html: getSubscriptionActiveTemplate(user.name, user.planName, user.planAmount, user.planExpiry, loginLink),
                     text: getSubscriptionActiveText(user.name, user.planName),
                 });
                 console.log(`✅ Activation email sent to ${user.email} via updateUser`);
@@ -163,9 +185,9 @@ export const updateUser = async (req, res) => {
             }
         }
 
-        res.status(200).json({ user });
+        res.status(200).json({ success: true, user });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ success: false, error: error.message });
     }
 }
 

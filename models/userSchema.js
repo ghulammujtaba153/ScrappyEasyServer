@@ -46,6 +46,24 @@ const userSchema = new mongoose.Schema({
     planAmount: String,
     planExpiry: Date,
     planId: String,
+    gender: {
+        type: String,
+        enum: ["male", "female", "other"],
+        required: false
+    },
+    dob: {
+        type: Date,
+        required: false
+    },
+    areaOfInterest: {
+        type: [String], // Array of countries
+        required: false,
+        default: []
+    },
+    isProfileComplete: {
+        type: Boolean,
+        default: false
+    }
 }, {
     timestamps: true
 })

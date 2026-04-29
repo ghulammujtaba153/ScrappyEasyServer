@@ -67,7 +67,8 @@ export const updateProfile = async (req, res) => {
                 $set: {
                     gender,
                     dob,
-                    areaOfInterest
+                    areaOfInterest,
+                    isProfileComplete: true
                 }
             },
             { new: true }
