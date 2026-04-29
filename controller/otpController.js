@@ -37,30 +37,24 @@ export const generateOtp = async (req, res) => {
             await Otp.create({ email, otp });
         }
 
-        // Send email via Nodemailer
-        try {
-            const response = await sendMail({
-                to: email,
-                subject: "Your OTP Verification Code",
-                html: getOtpEmailTemplate(otp, user?.name),
-                text: getOtpEmailText(otp, user?.name),
-            });
-            console.log("✅ OTP email sent successfully:", response.messageId);
+        // Respond immediately so the frontend does not wait on SMTP latency or timeouts.
+        res.status(200).json({
+            message: "OTP generated successfully",
+            email: email
+        });
 
-            res.status(200).json({
-                message: "OTP generated and sent successfully",
-                email: email
+        void sendMail({
+            to: email,
+            subject: "Your OTP Verification Code",
+            html: getOtpEmailTemplate(otp, user?.name),
+            text: getOtpEmailText(otp, user?.name),
+        })
+            .then((response) => {
+                console.log("✅ OTP email sent successfully:", response.messageId);
+            })
+            .catch((emailError) => {
+                console.error("❌ Error sending OTP email:", emailError);
             });
-        } catch (emailError) {
-            console.error("❌ Error sending OTP email:", emailError);
-
-            // Still return success if OTP was saved, but notify about email failure
-            res.status(200).json({
-                message: "OTP generated but email sending failed. Please check your email configuration.",
-                email: email,
-                emailError: emailError.message
-            });
-        }
 
     } catch (error) {
         console.error("❌ Error in generateOtp:", error);
