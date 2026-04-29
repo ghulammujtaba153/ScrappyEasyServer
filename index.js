@@ -33,6 +33,7 @@ app.set("trust proxy", 1);
 const allowedOrigins = [
    process.env.CLIENT_URL,
    'https://dashboard.mapharvest.live',
+   'https://mapharvest.live',
    'http://localhost:5173',
    'http://localhost:3000',
    'http://localhost:5000',
