@@ -8,6 +8,10 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+  console.error("❌ CRITICAL: EMAIL_USER or EMAIL_PASS is missing in environment variables!");
+}
+
 const transporter = createTransport({
   host: "smtp.hostinger.com",
   port: 465,
@@ -29,22 +33,12 @@ const transporter = createTransport({
  */
 export const sendMail = async ({ to, subject, text, html }) => {
   try {
-    // Logo path
-    const logoPath = path.join(__dirname, "..", "public", "map.png");
-
     const info = await transporter.sendMail({
       from: `"Map Harvest" <${process.env.EMAIL_USER}>`,
       to,
       subject,
       text,
       html,
-      attachments: [
-        {
-          filename: 'map.png',
-          path: logoPath,
-          cid: 'logo' // same cid value as in the html img src
-        }
-      ]
     });
     console.log("✅ Email sent successfully:", info.messageId);
     return info;

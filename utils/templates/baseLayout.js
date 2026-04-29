@@ -169,7 +169,7 @@ export const baseLayout = (title, content, footerExtra = '') => {
     <div class="container">
       <div class="header">
         <div class="header-content" style="display: block; text-align: center;">
-          <img src="cid:logo" alt="Logo" class="header-logo" style="vertical-align: middle; margin-right: 12px; display: inline-block;">
+          <div style="width: 48px; height: 48px; border-radius: 12px; background: #ffffff; padding: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); vertical-align: middle; margin-right: 12px; display: inline-flex; align-items: center; justify-content: center; color: #0F792C; font-weight: 800; font-size: 24px;">MH</div>
           <h1 style="vertical-align: middle; display: inline-block;">Map Harvest</h1>
         </div>
       </div>

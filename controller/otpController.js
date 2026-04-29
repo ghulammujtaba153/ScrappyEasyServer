@@ -4,6 +4,7 @@ import { sendMail } from "../utils/mailer.js";
 import { getOtpEmailTemplate, getOtpEmailText } from "../utils/templates/otp.js";
 
 export const generateOtp = async (req, res) => {
+    console.log(`🔑 Generating OTP for email: ${req.body.email}`);
     try {
         const { email, registration } = req.body;
 

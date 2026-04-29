@@ -170,23 +170,28 @@ export const updateUser = async (req, res) => {
 }
 
 export const sendInternationalPaymentLink = async (req, res) => {
+    console.log(`📩 Request to send payment link for user ID: ${req.params.id}`);
     try {
         const { paymentLink } = req.body;
         const user = await User.findById(req.params.id);
 
         if (!user) {
+            console.warn(`⚠️ User not found for payment link: ${req.params.id}`);
             return res.status(404).json({ message: "User not found" });
         }
 
         if (String(user.userType || "").toLowerCase() !== "intl") {
+            console.warn(`⚠️ User ${user.email} is not an international user`);
             return res.status(400).json({ message: "Payment link emails can only be sent to international users" });
         }
 
         const finalLink = paymentLink || process.env.INTERNATIONAL_PAYMENT_LINK;
         if (!finalLink) {
+            console.warn(`⚠️ No payment link provided or found in environment`);
             return res.status(400).json({ message: "Payment link is required" });
         }
 
+        console.log(`📤 Sending payment link email to ${user.email}...`);
         await sendMail({
             to: user.email,
             subject: "Complete Your International Payment",
@@ -194,11 +199,13 @@ export const sendInternationalPaymentLink = async (req, res) => {
             text: getInternationalPaymentText(user.name, finalLink),
         });
 
+        console.log(`✅ Payment link email sent successfully to ${user.email}`);
         res.status(200).json({
             success: true,
             message: "International payment link email sent successfully",
         });
     } catch (error) {
+        console.error(`❌ Error in sendInternationalPaymentLink:`, error);
         res.status(500).json({ error: error.message });
     }
 }

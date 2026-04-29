@@ -15,7 +15,7 @@ import cron from 'node-cron';
 import setupSocketIO from "./services/socket.service.js";
 // import { setupMediaStream } from "./utils/mediaStream.js"; // Disabled: using text-based voice approach
 import dns from "node:dns/promises";
-dns.setServers(["1.1.1.1"]);
+dns.setServers(["1.1.1.1"]); // Restored: Necessary for resolving MongoDB Atlas SRV records in some environments
 
 
 dotenv.config();
@@ -138,6 +138,7 @@ app.use("/api", (req, res) => {
    GLOBAL ERROR HANDLER
 ====================== */
 app.use((err, req, res, next) => {
+   console.error("❌ GLOBAL ERROR:", err.message);
    console.error(err.stack);
    res.status(err.status || 500).json({
       success: false,
