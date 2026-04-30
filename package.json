@@ -19,12 +19,14 @@
     "mongoose": "^9.0.0",
     "morgan": "^1.10.1",
     "multer": "^2.1.1",
+    "node-cron": "^3.0.2",
     "nodemailer": "^8.0.5",
     "pino": "^10.1.0",
     "playwright": "^1.57.0",
     "puppeteer": "^24.32.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
+    "resend": "^6.12.2",
     "sib-api-v3-sdk": "^8.5.0",
     "socket.io": "^4.8.3",
     "stripe": "^20.1.0",
@@ -32,7 +34,6 @@
     "uuid": "^13.0.0",
     "winston": "^3.19.0",
     "ws": "^8.18.3",
-    "xlsx": "^0.18.5",
-    "node-cron": "^3.0.2"
+    "xlsx": "^0.18.5"
   }
 }

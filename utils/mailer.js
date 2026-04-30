@@ -1,57 +1,44 @@
-import { createTransport } from "nodemailer";
+import { Resend } from "resend";
 import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-  console.error("❌ CRITICAL: EMAIL_USER or EMAIL_PASS is missing in environment variables!");
+if (!process.env.RESEND_API_KEY) {
+  console.error("❌ CRITICAL: RESEND_API_KEY is missing in environment variables!");
 }
 
-// Configure Hostinger SMTP transporter
-    const transporter = createTransport({
-      host: "smtp.hostinger.com",
-      port: 465,
-      secure: true,
-      auth: {
-        user: process.env.EMAIL_USER, // your full email (e.g. info@yourdomain.com)
-        pass: process.env.EMAIL_PASS, // email password from Hostinger
-      },
-    });
+if (!process.env.RESEND_EMAIL_FROM) {
+  console.error("❌ CRITICAL: RESEND_EMAIL_FROM is missing in environment variables!");
+}
 
-    // Optional: verify SMTP connection
-    transporter.verify((err, success) => {
-      if (err) {
-        console.error("SMTP Connection Error:", err);
-      } else {
-        console.log("SMTP Server Ready");
-      }
-    });
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 /**
- * Send email using Nodemailer
+ * Send email using Resend
  * @param {Object} options - Email options
- * @param {string} options.to - Recipient email
+ * @param {string} options.to - Recipient email (or array of emails)
  * @param {string} options.subject - Email subject
- * @param {string} options.text - Plain text content
+ * @param {string} options.text - Plain text content (optional if html provided)
  * @param {string} options.html - HTML content
- * @returns {Promise<Object>} - Nodemailer info object
+ * @returns {Promise<Object>} - Resend response { id }
  */
 export const sendMail = async ({ to, subject, text, html }) => {
   try {
-    const info = await transporter.sendMail({
-      from: `"Map Harvest" <${process.env.EMAIL_USER}>`,
-      to,
+    const { data, error } = await resend.emails.send({
+      from: `Map Harvest <${process.env.RESEND_EMAIL_FROM}>`,
+      to: Array.isArray(to) ? to : [to],
       subject,
-      text,
-      html,
+      ...(html ? { html } : {}),
+      ...(text ? { text } : {}),
     });
-    console.log("✅ Email sent successfully:", info.messageId);
-    return info;
+
+    if (error) {
+      console.error("❌ Resend API error:", error);
+      throw new Error(error.message || "Failed to send email via Resend");
+    }
+
+    console.log("✅ Email sent successfully via Resend. ID:", data.id);
+    return data;
   } catch (error) {
     console.error("❌ Error sending email:", error);
     throw error;

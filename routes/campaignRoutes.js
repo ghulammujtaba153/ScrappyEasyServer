@@ -6,7 +6,9 @@ import {
     updateCampaign, 
     deleteCampaign,
     sendCampaign,
-    previewCampaign
+    previewCampaign,
+    debugCampaign,
+    resetCampaign
 } from "../controller/campaignController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
@@ -21,5 +23,7 @@ router.get("/:id", getCampaignById);
 router.put("/:id", updateCampaign);
 router.delete("/:id", deleteCampaign);
 router.post("/:id/send", sendCampaign);
+router.get("/:id/debug", debugCampaign);   // inspect all recipients + errors
+router.post("/:id/reset", resetCampaign);  // reset stuck campaign back to Draft
 
 export default router;

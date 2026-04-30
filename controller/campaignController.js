@@ -160,7 +160,14 @@ export const sendCampaignById = async (campaignId) => {
     let failedCount = campaign.stats.failed || 0;
 
     const recipientsToSend = campaign.recipients.filter(r => r.status === 'Pending');
+
+    console.log(`\n📧 [CAMPAIGN] Starting send for campaign: "${campaign.title}" (${campaign._id})`);
+    console.log(`📧 [CAMPAIGN] Subject: ${campaign.subject}`);
+    console.log(`📧 [CAMPAIGN] FROM address: ${process.env.RESEND_EMAIL_FROM}`);
+    console.log(`📧 [CAMPAIGN] Total pending recipients: ${recipientsToSend.length}`);
+
     if (!recipientsToSend.length) {
+        console.warn('⚠️  [CAMPAIGN] No pending recipients found. Marking as Sent and exiting.');
         if (campaign.status !== 'Sent') {
             campaign.status = 'Sent';
             campaign.sentAt = campaign.sentAt || new Date();
@@ -171,16 +178,20 @@ export const sendCampaignById = async (campaignId) => {
 
     for (let i = 0; i < recipientsToSend.length; i += BATCH_SIZE) {
         const batch = recipientsToSend.slice(i, i + BATCH_SIZE);
+        console.log(`\n📦 [CAMPAIGN] Sending batch ${Math.floor(i / BATCH_SIZE) + 1} — recipients ${i + 1}–${Math.min(i + BATCH_SIZE, recipientsToSend.length)}`);
 
         await Promise.all(batch.map(async (recipient) => {
+            console.log(`  ➤  Sending to: ${recipient.email}`);
             try {
                 const emailHtml = baseLayout(campaign.subject, campaign.body);
-                await sendMail({
+                const result = await sendMail({
                     to: recipient.email,
                     subject: campaign.subject,
                     html: emailHtml,
                     text: campaign.body.replace(/<[^>]*>?/gm, '') // Strip HTML
                 });
+
+                console.log(`  ✅  [${recipient.email}] Sent OK — Resend ID: ${result?.id}`);
 
                 await Campaign.updateOne(
                     { _id: campaign._id, "recipients._id": recipient._id },
@@ -193,6 +204,10 @@ export const sendCampaignById = async (campaignId) => {
                 );
                 sentCount++;
             } catch (error) {
+                console.error(`  ❌  [${recipient.email}] FAILED:`);
+                console.error(`       Message: ${error.message}`);
+                console.error(`       Full error:`, JSON.stringify(error, null, 2));
+
                 await Campaign.updateOne(
                     { _id: campaign._id, "recipients._id": recipient._id },
                     {
@@ -211,7 +226,10 @@ export const sendCampaignById = async (campaignId) => {
             "stats.failed": failedCount
         });
 
+        console.log(`  📊 Batch done — cumulative sent: ${sentCount}, failed: ${failedCount}`);
+
         if (i + BATCH_SIZE < recipientsToSend.length) {
+            console.log(`  ⏳ Waiting 5s before next batch...`);
             await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
         }
     }
@@ -223,9 +241,11 @@ export const sendCampaignById = async (campaignId) => {
         // Mark campaign as failed if every pending email failed.
         if (sentCount === 0 && failedCount > 0) {
             updatedCampaign.status = 'Failed';
+            console.error(`\n❌ [CAMPAIGN] All ${failedCount} emails failed. Campaign marked Failed.`);
         } else {
             updatedCampaign.status = 'Sent';
             updatedCampaign.sentAt = new Date();
+            console.log(`\n✅ [CAMPAIGN] Done — sent: ${sentCount}, failed: ${failedCount}. Campaign marked Sent.`);
         }
         await updatedCampaign.save();
     }
@@ -236,6 +256,101 @@ export const previewCampaign = async (req, res) => {
         const { subject, body } = req.body;
         const html = baseLayout(subject || "Preview Subject", body || "<p>Preview content goes here...</p>");
         res.status(200).json({ success: true, html });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * GET /campaigns/:id/debug
+ * Returns full recipient list with statuses and errors.
+ * Useful for diagnosing why emails failed.
+ */
+export const debugCampaign = async (req, res) => {
+    try {
+        const campaign = await Campaign.findById(req.params.id).lean();
+        if (!campaign) {
+            return res.status(404).json({ success: false, message: "Campaign not found" });
+        }
+
+        const summary = {
+            title: campaign.title,
+            subject: campaign.subject,
+            status: campaign.status,
+            stats: campaign.stats,
+            sentAt: campaign.sentAt,
+            scheduledAt: campaign.scheduledAt,
+            resendFrom: process.env.RESEND_EMAIL_FROM || "⚠️ NOT SET",
+            recipients: campaign.recipients.map(r => ({
+                email: r.email,
+                status: r.status,
+                sentAt: r.sentAt || null,
+                error: r.error || null,
+            })),
+        };
+
+        console.log(`\n🔍 [DEBUG] Campaign "${campaign.title}" (${campaign._id})`);
+        console.log(`   Status : ${campaign.status}`);
+        console.log(`   Stats  :`, campaign.stats);
+        campaign.recipients.forEach(r => {
+            const icon = r.status === 'Sent' ? '✅' : r.status === 'Failed' ? '❌' : '⏳';
+            console.log(`   ${icon} ${r.email} — ${r.status}${r.error ? ` | ${r.error}` : ''}`);
+        });
+
+        res.status(200).json({ success: true, data: summary });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * POST /campaigns/:id/reset
+ * Resets a stuck Sending/Failed campaign back to Draft.
+ * Also resets all Failed/Pending recipients back to Pending.
+ * Use this when a campaign got stuck in "Sending" or "Failed" and needs to be retried.
+ */
+export const resetCampaign = async (req, res) => {
+    try {
+        const campaign = await Campaign.findById(req.params.id);
+        if (!campaign) {
+            return res.status(404).json({ success: false, message: "Campaign not found" });
+        }
+
+        if (campaign.status === 'Sent') {
+            return res.status(400).json({
+                success: false,
+                message: "Cannot reset a fully Sent campaign. Delete and recreate it if needed."
+            });
+        }
+
+        // Reset campaign-level status
+        campaign.status = 'Draft';
+        campaign.sentAt = undefined;
+
+        // Reset stats
+        campaign.stats.sent = 0;
+        campaign.stats.failed = 0;
+
+        // Reset only Failed or stuck Pending recipients back to Pending
+        campaign.recipients = campaign.recipients.map(r => ({
+            ...r.toObject(),
+            status: 'Pending',
+            sentAt: undefined,
+            error: undefined,
+        }));
+
+        campaign.stats.total = campaign.recipients.length;
+
+        await campaign.save();
+
+        console.log(`\n🔄 [RESET] Campaign "${campaign.title}" (${campaign._id}) reset to Draft.`);
+        console.log(`   ${campaign.recipients.length} recipients set back to Pending.`);
+
+        res.status(200).json({
+            success: true,
+            message: `Campaign reset to Draft. ${campaign.recipients.length} recipients are now Pending.`,
+            data: { status: campaign.status, stats: campaign.stats }
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
