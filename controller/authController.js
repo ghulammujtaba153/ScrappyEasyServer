@@ -137,7 +137,7 @@ export const updateUser = async (req, res) => {
         }
 
         // Whitelist only safe, user-editable fields
-        const allowedFields = ['name', 'email', 'country', 'aboutUser', 'password', 'gender', 'dob', 'areaOfInterest'];
+        const allowedFields = ['name', 'email', 'country', 'aboutUser', 'password', 'gender', 'dob', 'areaOfInterest', 'status'];
         const updateData = {};
 
         for (const field of allowedFields) {
