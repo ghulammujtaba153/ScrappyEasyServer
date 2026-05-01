@@ -446,9 +446,21 @@ export const getDataRecordById = async (req, res) => {
             });
         }
 
+        // Reliably fetch leads directly from LeadData collection using operationId
+        const leads = await LeadData.find({ operationId: recordId }).sort({ createdAt: -1 });
+        
+        // Convert mongoose doc to plain object so we can append leads if missing
+        const recordObj = record.toObject();
+        
+        // If populate didn't find leads but they exist in LeadData, or we just want to ensure
+        // all leads are returned correctly from the schema the user specified
+        if (leads && leads.length > 0) {
+            recordObj.leads = leads;
+        }
+
         res.status(200).json({
             success: true,
-            data: record
+            data: recordObj
         });
     } catch (error) {
         res.status(500).json({
