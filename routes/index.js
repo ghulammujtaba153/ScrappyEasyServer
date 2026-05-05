@@ -30,6 +30,7 @@ import mailRouter from "./mailRoutes.js";
 import socialMediaRouter from "./socialMediaRoutes.js";
 import campaignRouter from "./campaignRoutes.js";
 import teamNotesRouter from "./teamNotesRoutes.js";
+import blogRouter from "./blogRoutes.js";
 
 
 
@@ -67,6 +68,7 @@ router.use("/mailautomation", mailRouter);
 router.use("/social-media", socialMediaRouter);
 router.use("/campaigns", campaignRouter);
 router.use("/team-notes", teamNotesRouter);
+router.use("/blog", blogRouter);
 
 
 export default router;
