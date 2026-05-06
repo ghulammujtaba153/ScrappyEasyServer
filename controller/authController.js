@@ -8,6 +8,7 @@ import { getSubscriptionActiveTemplate, getSubscriptionActiveText } from "../uti
 import { getWelcomeTemplate, getWelcomeText } from "../utils/templates/welcome.js";
 import { getInternationalWelcomeTemplate, getInternationalWelcomeText } from "../utils/templates/internationalWelcome.js";
 import { getInternationalPaymentTemplate, getInternationalPaymentText } from "../utils/templates/internationalPayment.js";
+import { sendMetaCAPIEvent } from "../utils/metaPixel.js";
 
 
 export const register = async (req, res) => {
@@ -49,6 +50,13 @@ export const register = async (req, res) => {
         };
 
         const user = await User.create(userData);
+        
+        // Send Meta CAPI event for Registration
+        sendMetaCAPIEvent('CompleteRegistration', user, {
+            content_name: user.planName || 'Registration',
+            currency: 'USD',
+            value: parseFloat(user.planAmount) || 0
+        }, req);
         
         const isInternational = String(req.body.userType || "local").toLowerCase() === "intl";
 
@@ -114,6 +122,12 @@ export const login = async (req, res) => {
                 isSubscription = teamWithSubscribedOwner.owner.status === 'active' && !!teamWithSubscribedOwner.owner.planId;
             }
         }
+
+        // Track Meta CAPI event for Login
+        sendMetaCAPIEvent('Contact', user, {
+            content_name: 'User Login',
+            content_category: 'Authentication'
+        }, req);
 
         res.status(200).json({ 
             user: { ...user.toObject(), isSubscription }, 
@@ -545,6 +559,15 @@ export const activateUserSubscription = async (req, res) => {
 
         user.status = "active";
         await user.save();
+
+        // Send Meta CAPI event for Purchase
+        sendMetaCAPIEvent('Purchase', user, {
+            content_name: user.planName || 'Subscription',
+            currency: 'USD',
+            value: parseFloat(user.planAmount) || 0,
+            content_type: 'product',
+            contents: [{ id: user.planId || 'sub_default', quantity: 1 }]
+        }, req);
 
         // Send activation email
         try {

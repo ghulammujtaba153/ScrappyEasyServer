@@ -1,7 +1,9 @@
 import csv from "csvtojson";
 import Data from "../models/dataSchema.js"
 import LeadData from "../models/leadDataSchema.js"
+import User from "../models/userSchema.js"
 import mongoose from "mongoose";
+import { sendMetaCAPIEvent } from "../utils/metaPixel.js";
 // Bulk import leads from CSV
 export const importCSVData = async (req, res) => {
     try {
@@ -93,6 +95,20 @@ export const importCSVData = async (req, res) => {
             data: operation,
             imported: leadDocs.length
         });
+
+        // Track Lead Event via CAPI
+        try {
+            const userData = await User.findById(userId);
+            if (userData) {
+                await sendMetaCAPIEvent('Lead', userData, {
+                    content_name: 'CSV Lead Import',
+                    content_category: 'Lead Generation',
+                    value: leadDocs.length
+                }, req);
+            }
+        } catch (capiError) {
+            console.error("CAPI Error in importCSVData:", capiError.message);
+        }
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -212,6 +228,20 @@ export const createData = async (req, res) => {
             message: "Data saved successfully",
             data: newOperation
         });
+
+        // Track Lead Event via CAPI (Extension Ingestion)
+        try {
+            const userData = await User.findById(userId);
+            if (userData) {
+                await sendMetaCAPIEvent('Lead', userData, {
+                    content_name: 'Extension Lead Creation',
+                    content_category: 'Extension Scraper',
+                    value: leadDocs.length
+                }, req);
+            }
+        } catch (capiError) {
+            console.error("CAPI Error in createData:", capiError.message);
+        }
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -426,6 +456,20 @@ export const appendDataEntries = async (req, res) => {
             message: 'Data appended successfully',
             data: updatedRecord
         });
+
+        // Track Lead Event via CAPI (Extension Append)
+        try {
+            const userData = await User.findById(record.userId);
+            if (userData) {
+                await sendMetaCAPIEvent('Lead', userData, {
+                    content_name: 'Extension Lead Append',
+                    content_category: 'Extension Scraper',
+                    value: uniqueEntries.length
+                }, req);
+            }
+        } catch (capiError) {
+            console.error("CAPI Error in appendDataEntries:", capiError.message);
+        }
     } catch (error) {
         res.status(500).json({
             success: false,

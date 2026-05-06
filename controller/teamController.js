@@ -4,6 +4,7 @@ import User from "../models/userSchema.js";
 import { sendMail } from "../utils/mailer.js";
 import { sendNotification } from "./notificationController.js";
 import { getTeamInviteTemplate, getTeamInviteText } from "../utils/templates/teamInvite.js";
+import { sendMetaCAPIEvent } from "../utils/metaPixel.js";
 
 const MAX_MEMBERS = 2;
 
@@ -52,6 +53,19 @@ const processTeamMembers = async (emails, ownerId, teamName, req, oldMemberIds =
                 html: getTeamInviteTemplate(senderName, teamName, inviteLink),
                 text: getTeamInviteText(senderName, teamName, inviteLink),
             }).catch(err => console.error("Invite email fail:", err));
+
+            // Track CAPI event for Invitation (using owner's info as the source of action)
+            try {
+                const owner = await User.findById(ownerId);
+                if (owner) {
+                    sendMetaCAPIEvent('Contact', owner, {
+                        content_name: 'Team Invitation Sent',
+                        content_category: 'Collaboration'
+                    }, req);
+                }
+            } catch (capiErr) {
+                console.error("CAPI error in team invite:", capiErr);
+            }
         }
     }
     return memberIds;

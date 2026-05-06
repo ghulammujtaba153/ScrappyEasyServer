@@ -2,6 +2,7 @@ import axios from "axios";
 import Joi from "joi";
 import LeadData from "../models/leadDataSchema.js";
 import { chromium } from "playwright";
+import { sendMetaCAPIEvent } from "../utils/metaPixel.js";
 
 const MAX_PAGES = 3;
 
@@ -182,7 +183,7 @@ export const extractSocials = async (req, res) => {
             });
         }
         
-        return res.json({
+        res.json({
             success: true,
             data: {
                 socials: result.socials,
@@ -190,6 +191,20 @@ export const extractSocials = async (req, res) => {
                 count
             }
         });
+
+        // Track Lead Enrichment via CAPI
+        if (req.user && count > 0) {
+            try {
+                await sendMetaCAPIEvent('Lead', req.user, {
+                    content_name: 'Single Social Enrichment',
+                    content_category: 'Lead Discovery',
+                    value: count
+                }, req);
+            } catch (capiError) {
+                console.error("CAPI Error in extractSocials:", capiError.message);
+            }
+        }
+        return;
     } catch (err) {
         return res.json({
             success: true,
@@ -244,6 +259,18 @@ export const bulkExtractSocials = async (req, res) => {
             data: resultMap
         });
 
+        // Track Bulk Lead Enrichment via CAPI
+        if (req.user && totalItemsFound > 0) {
+            try {
+                await sendMetaCAPIEvent('Lead', req.user, {
+                    content_name: 'Bulk Social Enrichment',
+                    content_category: 'Lead Discovery',
+                    value: totalItemsFound
+                }, req);
+            } catch (capiError) {
+                console.error("CAPI Error in bulkExtractSocials:", capiError.message);
+            }
+        }
     } catch (error) {
         console.error("Bulk extraction error:", error);
         res.status(500).json({ success: false, error: error.message });

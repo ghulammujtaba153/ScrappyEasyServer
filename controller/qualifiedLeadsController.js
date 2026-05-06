@@ -1,5 +1,7 @@
 import QualifiedLeads from "../models/qualifiedLeadsSchema.js";
 import LeadData from "../models/leadDataSchema.js";
+import User from "../models/userSchema.js";
+import { sendMetaCAPIEvent } from "../utils/metaPixel.js";
 
 export const createQualifiedLead = async (req, res) => {
     try {
@@ -27,6 +29,21 @@ export const createQualifiedLead = async (req, res) => {
         });
 
         await qualifiedLead.save();
+        
+        // Track Meta CAPI event for Qualified Lead
+        try {
+            const user = await User.findById(userId);
+            if (user) {
+                sendMetaCAPIEvent('Lead', user, {
+                    content_name: 'Qualified Lead List',
+                    content_category: 'Lead Management',
+                    value: entries.length * 0.1, // Symbolic value per lead
+                    currency: 'USD'
+                }, req);
+            }
+        } catch (e) {
+            console.error("CAPI error in qualified lead:", e);
+        }
         
         // Populate the lead data before returning
         await qualifiedLead.populate('entries.leadId');
