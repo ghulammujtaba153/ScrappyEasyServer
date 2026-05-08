@@ -31,8 +31,7 @@ import socialMediaRouter from "./socialMediaRoutes.js";
 import campaignRouter from "./campaignRoutes.js";
 import teamNotesRouter from "./teamNotesRoutes.js";
 import blogRouter from "./blogRoutes.js";
-
-
+import stackAnalysisRouter from "./stackAnalysisRoutes.js";
 
 
 const router = express.Router();
@@ -69,6 +68,7 @@ router.use("/social-media", socialMediaRouter);
 router.use("/campaigns", campaignRouter);
 router.use("/team-notes", teamNotesRouter);
 router.use("/blog", blogRouter);
+router.use("/stack-analysis", stackAnalysisRouter);
 
 
 export default router;
