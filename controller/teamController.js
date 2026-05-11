@@ -107,7 +107,15 @@ export const getTeams = async (req, res) => {
 
 export const getTeamById = async (req, res) => {
     try {
-        const team = await Team.findById(req.params.id).populate('members').populate('owner');
+        const team = await Team.findById(req.params.id)
+            .populate('members')
+            .populate('owner')
+            .populate({
+                path: 'leads',
+                populate: {
+                    path: 'lead'
+                }
+            });
         res.status(200).json(team);
     } catch (error) {
         res.status(400).json({ message: error.message });

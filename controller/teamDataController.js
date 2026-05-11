@@ -62,6 +62,122 @@ export const createTeamData = async(req, res) => {
     }
 }
 
+export const assignLeadToTeam = async (req, res) => {
+    try {
+        const { teamId, userId, leadId } = req.body;
+        
+        // Check if already assigned
+        const existingAssignment = await TeamData.findOne({ team: teamId, lead: leadId });
+        if (existingAssignment) {
+            return res.status(400).json({ error: "This lead is already assigned to this team" });
+        }
+
+        const LeadData = (await import('../models/leadDataSchema.js')).default;
+        const originalLead = await LeadData.findById(leadId);
+
+        const teamData = new TeamData({
+            team: teamId,
+            user: userId,
+            lead: leadId,
+            title: originalLead?.title || "",
+            phone: originalLead?.phone ? [{ title: "Primary", number: originalLead.phone }] : [],
+            link: originalLead?.googleMapsLink || originalLead?.website || "",
+            whatsappStatus: originalLead?.whatsappStatus === 'verified' ? 'verified' : 'not-checked',
+            status: "new"
+        });
+
+        await teamData.save();
+
+        // Notify team
+        const io = req.app.get('io');
+        const team = await Team.findById(teamId);
+        const User = (await import('../models/userSchema.js')).default;
+        const actor = await User.findById(userId);
+        const actorName = actor?.name || actor?.email || 'A team member';
+
+        await notifyTeamMembers(
+            io,
+            teamId,
+            userId,
+            actorName,
+            'Lead Assigned to Team',
+            `${actorName} assigned lead "${teamData.title || leadId}" to team "${team?.name}"`
+        );
+
+        res.status(201).json(teamData);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
+export const bulkAssignLeadsToTeam = async (req, res) => {
+    try {
+        const { teamId, userId, leadIds } = req.body;
+
+        if (!Array.isArray(leadIds) || leadIds.length === 0) {
+            return res.status(400).json({ error: "No leads provided" });
+        }
+
+        const LeadData = (await import('../models/leadDataSchema.js')).default;
+        const User = (await import('../models/userSchema.js')).default;
+        
+        // Find leads not already assigned to this team
+        const existingAssignments = await TeamData.find({ 
+            team: teamId, 
+            lead: { $in: leadIds } 
+        }).select('lead');
+        
+        const existingLeadIds = existingAssignments.map(a => a.lead.toString());
+        const leadsToAssign = leadIds.filter(id => !existingLeadIds.includes(id.toString()));
+
+        if (leadsToAssign.length === 0) {
+            return res.status(200).json({ 
+                success: true, 
+                message: "All leads were already assigned to this team",
+                count: 0
+            });
+        }
+
+        const originalLeads = await LeadData.find({ _id: { $in: leadsToAssign } });
+        
+        const teamDataEntries = originalLeads.map(lead => ({
+            team: teamId,
+            user: userId,
+            lead: lead._id,
+            title: lead.title || "",
+            phone: lead.phone ? [{ title: "Primary", number: lead.phone }] : [],
+            link: lead.googleMapsLink || lead.website || "",
+            whatsappStatus: lead.whatsappStatus === 'verified' ? 'verified' : 'not-checked',
+            status: "new"
+        }));
+
+        const inserted = await TeamData.insertMany(teamDataEntries);
+
+        // Notify team
+        const io = req.app.get('io');
+        const team = await Team.findById(teamId);
+        const actor = await User.findById(userId);
+        const actorName = actor?.name || actor?.email || 'A team member';
+
+        await notifyTeamMembers(
+            io,
+            teamId,
+            userId,
+            actorName,
+            'Leads Assigned to Team',
+            `${actorName} assigned ${inserted.length} leads to team "${team?.name}"`
+        );
+
+        res.status(201).json({
+            success: true,
+            message: `Successfully assigned ${inserted.length} leads to team`,
+            count: inserted.length
+        });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+}
+
 
 export const getTeamDataByTeamId = async(req, res) => {
     try {

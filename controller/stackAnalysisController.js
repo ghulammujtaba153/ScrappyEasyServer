@@ -29,9 +29,19 @@ export const analyzeStack = async (req, res) => {
     
     const page = await context.newPage();
 
+    // SPEED OPTIMIZATION: Block unnecessary resources
+    await page.route('**/*', (route) => {
+      const resourceType = route.request().resourceType();
+      if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
+
     await page.goto(url.startsWith('http') ? url : `https://${url}`, {
       waitUntil: 'domcontentloaded',
-      timeout: 25000
+      timeout: 15000
     });
 
     const content = await page.content();
@@ -69,14 +79,16 @@ export const analyzeStack = async (req, res) => {
     const hasMetaPixel = checkScripts('fbevents.js') || check('fbq(');
     const hasGTM = checkScripts('googletagmanager.com/gtm.js') || check('GTM-');
     const hasGA = checkScripts('google-analytics.com') || check('gtag(') || check('UA-') || check('G-');
+    const hasGoogleAds = checkScripts('googleadservices.com') || check('adsbygoogle') || check('gtag(\'config\', \'AW-');
     const hasTikTok = checkScripts('analytics.tiktok.com');
     const hasHotjar = checkScripts('static.hotjar.com');
     const hasClarity = checkScripts('clarity.ms');
     const hasCAPI = check('fb_capi') || check('conversions_api');
 
     if (hasMetaPixel) technologies.push({ name: 'Meta Pixel', category: 'Marketing', icon: 'facebook' });
-    if (hasGTM) technologies.push({ name: 'Google Tag Manager', category: 'Analytics', icon: 'gtm' });
+    if (hasGTM) technologies.push({ name: 'Google Tag Manager', category: 'Tag managers', icon: 'gtm' });
     if (hasGA) technologies.push({ name: 'Google Analytics', category: 'Analytics', icon: 'ga' });
+    if (hasGoogleAds) technologies.push({ name: 'Google Ads', category: 'Advertising', icon: 'googleads' });
     if (hasTikTok) technologies.push({ name: 'TikTok Pixel', category: 'Marketing', icon: 'tiktok' });
     if (hasHotjar) technologies.push({ name: 'Hotjar', category: 'Analytics', icon: 'hotjar' });
     if (hasClarity) technologies.push({ name: 'Microsoft Clarity', category: 'Analytics', icon: 'clarity' });
@@ -96,7 +108,36 @@ export const analyzeStack = async (req, res) => {
     if (checkScripts('paypal.com')) technologies.push({ name: 'PayPal', category: 'Payments', icon: 'paypal' });
 
     // 6. Security & Infrastructure
-    if (checkScripts('cloudflare.com') || check('__cf_bm')) technologies.push({ name: 'Cloudflare', category: 'Security', icon: 'cloudflare' });
+    if (checkScripts('cloudflare.com') || check('__cf_bm')) technologies.push({ name: 'Cloudflare', category: 'CDN', icon: 'cloudflare' });
+    if (checkScripts('cdnjs.cloudflare.com')) technologies.push({ name: 'cdnjs', category: 'CDN', icon: 'cloudflare' });
+    if (checkScripts('unpkg.com')) technologies.push({ name: 'Unpkg', category: 'CDN', icon: 'unpkg' });
+
+    // 7. Maps
+    if (checkScripts('maps.googleapis.com')) technologies.push({ name: 'Google Maps', category: 'Maps', icon: 'googlemaps' });
+
+    // 8. Fonts
+    if (check('fonts.googleapis.com')) technologies.push({ name: 'Google Font API', category: 'Font scripts', icon: 'googlefonts' });
+    if (check('font-awesome') || check('fontawesome.com')) technologies.push({ name: 'Font Awesome', category: 'Font scripts', icon: 'fontawesome' });
+
+    // 9. JavaScript Frameworks & Libraries
+    if (check('_next/static')) technologies.push({ name: 'Next.js', category: 'JavaScript frameworks', icon: 'nextjs' });
+    if (check('react.production') || check('react-dom')) technologies.push({ name: 'React', category: 'JavaScript frameworks', icon: 'react' });
+    if (check('alpine.js') || check('alpinejs') || check('x-data')) technologies.push({ name: 'Alpine.js', category: 'JavaScript frameworks', icon: 'alpinejs' });
+    
+    if (check('jquery.min.js') || check('jquery.js') || check('jQuery')) technologies.push({ name: 'jQuery', category: 'JavaScript libraries', icon: 'jquery' });
+    if (checkScripts('swiper')) technologies.push({ name: 'Swiper', category: 'JavaScript libraries', icon: 'swiper' });
+    if (checkScripts('axios') || check('axios.min.js')) technologies.push({ name: 'Axios', category: 'JavaScript libraries', icon: 'axios' });
+    if (checkScripts('aos.js') || check('aos-init')) technologies.push({ name: 'AOS', category: 'JavaScript libraries', icon: 'aos' });
+
+    // 10. UI Frameworks
+    if (check('tailwind.min.css') || check('tailwindcss') || check('tailwind.config')) technologies.push({ name: 'Tailwind CSS', category: 'UI frameworks', icon: 'tailwind' });
+    if (check('bootstrap.min.css') || check('bootstrap.bundle')) technologies.push({ name: 'Bootstrap', category: 'UI frameworks', icon: 'bootstrap' });
+
+    // 11. Performance
+    if (check('fetchpriority') || check('importance=')) technologies.push({ name: 'Priority Hints', category: 'Performance', icon: 'performance' });
+
+    // 12. Miscellaneous
+    if (checkMeta('og:')) technologies.push({ name: 'Open Graph', category: 'Miscellaneous', icon: 'opengraph' });
 
     // --- GENERATE OUTREACH OPPORTUNITIES ---
     if (!hasMetaPixel) {
@@ -110,6 +151,14 @@ export const analyzeStack = async (req, res) => {
         tool: 'Meta CAPI',
         impact: 'Critical',
         message: 'Meta Pixel found but CAPI is missing. Client losing 30%+ data to iOS privacy. Sell them a tracking upgrade.'
+      });
+    }
+
+    if (!hasGoogleAds) {
+      opportunities.push({
+        tool: 'Google Ads',
+        impact: 'High',
+        message: 'No Google Ads conversion tracking detected. They might be spending money on ads without proper attribution.'
       });
     }
 
@@ -136,11 +185,6 @@ export const analyzeStack = async (req, res) => {
           message: 'No live chat detected. Adding a support widget could increase conversion rates significantly.'
         });
     }
-
-    // Frameworks & Libraries
-    if (check('_next/static')) technologies.push({ name: 'Next.js', category: 'Framework', icon: 'nextjs' });
-    if (check('react.production') || check('react-dom')) technologies.push({ name: 'React', category: 'Library', icon: 'react' });
-    if (check('tailwind.min.css') || check('tailwindcss')) technologies.push({ name: 'Tailwind CSS', category: 'CSS Framework', icon: 'tailwind' });
 
     await context.close();
 

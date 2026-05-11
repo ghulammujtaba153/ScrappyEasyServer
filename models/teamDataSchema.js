@@ -39,6 +39,10 @@ const teamDataSchema = new mongoose.Schema({
         enum: ["new", "contacted", "qualified", "unqualified"],
         default: "new",
     },
+    lead: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "LeadData",
+    },
 }, {
     timestamps: true
 });
