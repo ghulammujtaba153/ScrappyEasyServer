@@ -51,13 +51,6 @@ export const register = async (req, res) => {
 
         const user = await User.create(userData);
         
-        // Send Meta CAPI event for Registration
-        sendMetaCAPIEvent('CompleteRegistration', user, {
-            content_name: user.planName || 'Registration',
-            currency: 'USD',
-            value: parseFloat(user.planAmount) || 0
-        }, req);
-        
         const isInternational = String(req.body.userType || "local").toLowerCase() === "intl";
 
         // Send a region-specific welcome email after registration
@@ -186,6 +179,15 @@ export const updateUser = async (req, res) => {
         // If status changed to active (admin-only path, not reachable here but kept for safety)
         if (req.body.status === 'active' && oldUser.status !== 'active') {
             try {
+                // Fire conversion only when admin activates subscription.
+                sendMetaCAPIEvent('Purchase', user, {
+                    content_name: user.planName || 'Subscription',
+                    currency: 'USD',
+                    value: parseFloat(user.planAmount) || 0,
+                    content_type: 'product',
+                    contents: [{ id: user.planId || 'sub_default', quantity: 1, item_price: parseFloat(user.planAmount) || 0 }]
+                }, req);
+
                 const loginLink = `${process.env.CLIENT_URL}/login`;
                 await sendMail({
                     to: user.email,

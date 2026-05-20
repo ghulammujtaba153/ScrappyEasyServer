@@ -18,7 +18,8 @@ import {
     importCSVData,
     updateLead,
     deleteLead,
-    updateEmailData
+    updateEmailData,
+    analyzeWebsitesForAds
 } from "../controller/dataController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { resolveTeamContext } from "../middleware/contextMiddleware.js";
@@ -52,5 +53,6 @@ dataRouter.put("/lead/:leadId", updateLead);
 dataRouter.delete("/lead/:leadId", deleteLead);
 dataRouter.post("/update-emails", updateEmailData);
 
+dataRouter.post("/analyze-websites-for-ads", analyzeWebsitesForAds);
 
 export default dataRouter;

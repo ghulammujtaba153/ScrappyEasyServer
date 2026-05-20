@@ -1002,3 +1002,195 @@ export const updateEmailData = async (req, res) => {
         });
     }
 };
+
+// Detect ads on websites by checking for ad network patterns
+const detectAdsInHtml = (html) => {
+    if (!html || typeof html !== 'string') return false;
+    
+    // Patterns for common ad networks
+    const adPatterns = [
+        /pagead2\.googlesyndication\.com/i,    // Google AdSense
+        /googleadservices\.com/i,                // Google Ads
+        /googlesyndication\.com/i,               // Google
+        /facebook\.com\/.*pixel/i,               // Facebook Pixel
+        /analytics\.google\.com/i,               // Google Analytics (often used for ads)
+        /doubleclick\.net/i,                     // DoubleClick (Google)
+        /adnxs\.com/i,                           // AppNexus
+        /rubiconproject\.com/i,                  // Rubicon Project
+        /taboola\.com/i,                         // Taboola
+        /outbrain\.com/i,                        // Outbrain
+        /criteo\.com/i,                          // Criteo
+        /amazon-adsystem\.com/i,                 // Amazon Ads
+        /ads\.pinterest\.com/i,                  // Pinterest Ads
+        /ads\.tiktok\.com/i,                     // TikTok Ads
+        /connect\.facebook\.net/i,               // Facebook
+        /platform\.twitter\.com/i,               // Twitter/X
+        /media\.licdn\.com\/ads/i                // LinkedIn Ads
+    ];
+    
+    return adPatterns.some(pattern => pattern.test(html));
+};
+
+// Analyze websites for running ads (bulk operation)
+export const analyzeWebsitesForAds = async (req, res) => {
+    try {
+        const { leadIds } = req.body;
+        console.log('analyzeWebsitesForAds called with leadIds:', Array.isArray(leadIds) ? leadIds.slice(0,50) : leadIds);
+        
+        if (!leadIds || !Array.isArray(leadIds) || leadIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "leadIds array is required"
+            });
+        }
+
+        // Fetch all leads to get websites
+        const leads = await LeadData.find({ _id: { $in: leadIds } });
+        
+        if (!leads || leads.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "No leads found"
+            });
+        }
+
+        const results = [];
+        const updates = [];
+
+        // Check each website for ads
+        for (const lead of leads) {
+            if (!lead.website || !lead.website.trim()) {
+                results.push({
+                    leadId: lead._id,
+                    title: lead.title,
+                    website: lead.website,
+                    status: 'not-available',
+                    error: 'No website URL'
+                });
+                updates.push({
+                    _id: lead._id,
+                    status: 'not-available'
+                });
+                continue;
+            }
+
+            try {
+                // Add protocol if missing
+                let url = lead.website;
+                if (!url.startsWith('http')) {
+                    url = 'https://' + url;
+                }
+
+                // Set timeout for fetch
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 10000);
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    },
+                    signal: controller.signal
+                });
+                clearTimeout(timeout);
+
+                if (!response.ok) {
+                    results.push({
+                        leadId: lead._id,
+                        title: lead.title,
+                        website: lead.website,
+                        status: 'not-available',
+                        error: `HTTP ${response.status}`
+                    });
+                    updates.push({
+                        _id: lead._id,
+                        status: 'not-available'
+                    });
+                    continue;
+                }
+
+                const html = await response.text();
+                const hasAds = detectAdsInHtml(html);
+                const adStatus = hasAds ? 'running' : 'not-running';
+
+                results.push({
+                    leadId: lead._id,
+                    title: lead.title,
+                    website: lead.website,
+                    status: adStatus,
+                    error: null
+                });
+
+                updates.push({
+                    _id: lead._id,
+                    status: adStatus
+                });
+
+            } catch (error) {
+                results.push({
+                    leadId: lead._id,
+                    title: lead.title,
+                    website: lead.website,
+                    status: 'not-available',
+                    error: error.message
+                });
+                updates.push({
+                    _id: lead._id,
+                    status: 'not-available'
+                });
+            }
+        }
+
+        // Bulk update all leads with ad status using bulkWrite for reliability
+        try {
+            console.log(`Analyzing ads - preparing to update ${updates.length} leads`);
+            if (updates.length > 0) {
+                const bulkOps = updates.map(u => ({
+                    updateOne: {
+                        filter: { _id: mongoose.Types.ObjectId(u._id) },
+                        update: { $set: { addsRunning: u.status, adDetectedAt: new Date() } },
+                        upsert: false
+                    }
+                }));
+
+                const bulkResult = await LeadData.bulkWrite(bulkOps, { ordered: false });
+                console.log('Ads analysis bulkWrite result:', bulkResult.result || bulkResult);
+            } else {
+                console.log('No updates to apply for ads analysis');
+            }
+        } catch (bulkError) {
+            console.error('Error during bulk update of ad status:', bulkError);
+            // Fallback to individual updates to maximize chances of persisting data
+            for (const update of updates) {
+                try {
+                    await LeadData.findByIdAndUpdate(
+                        update._id,
+                        { addsRunning: update.status, adDetectedAt: new Date() },
+                        { new: true }
+                    );
+                } catch (indErr) {
+                    console.error(`Failed to update lead ${update._id}:`, indErr.message || indErr);
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            message: `Analyzed ${results.length} websites for ads`,
+            data: {
+                total: results.length,
+                running: results.filter(r => r.status === 'running').length,
+                notRunning: results.filter(r => r.status === 'not-running').length,
+                notAvailable: results.filter(r => r.status === 'not-available').length,
+                results
+            }
+        });
+
+    } catch (error) {
+        console.error("Error analyzing websites for ads:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};

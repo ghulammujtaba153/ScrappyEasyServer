@@ -49,6 +49,28 @@ const leadDataSchema = new mongoose.Schema({
         type: String,
         default: ''
     },
+    // Ads detection status
+    addsRunning: {
+        type: String,
+        enum: ['running', 'not-running', 'not-available', 'not-checked', ''],
+        default: ''
+    },
+    adDetectedAt: {
+        type: Date
+    },
+    // Email verification status
+    emailStatus: {
+        type: String,
+        enum: ['verified', 'not-verified', 'not-checked', ''],
+        default: ''
+    },
+    emailVerifiedAt: {
+        type: Date
+    },
+    // Phone verification status
+    phoneStatus: {
+        type: String,
+    },
     // WhatsApp verification status
     whatsappStatus: {
         type: String,
