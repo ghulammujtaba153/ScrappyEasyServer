@@ -25,7 +25,7 @@ dotenv.config();
 ====================== */
 const app = express();
 const server = http.createServer(app);
-server.timeout = 30000; // 30 seconds
+server.timeout = 120000; // 120 seconds (2 minutes)
 app.use(helmet());
 app.set("trust proxy", 1);
 
@@ -42,22 +42,23 @@ const allowedOrigins = [
    'http://127.0.0.1:5000'
 ].filter(Boolean);
 
-/* ======================
-   MIDDLEWARE
-====================== */
-app.use(cors({
+const corsOptions = {
    origin: (origin, callback) => {
       if (!origin || allowedOrigins.includes(origin)) {
          callback(null, true);
       } else {
          console.warn(`Non-whitelisted origin requested: ${origin}`);
-         callback(null, true); // Still allow for development flexibility
+         callback(null, true);
       }
    },
    credentials: true,
    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-   allowedHeaders: ["Content-Type", "Authorization", "x-active-team"]
-}));
+   allowedHeaders: ["Content-Type", "Authorization", "x-active-team"],
+   exposedHeaders: ["Authorization"],
+   optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
 
 // CORS middleware handles preflight requests automatically
 app.use(express.json({

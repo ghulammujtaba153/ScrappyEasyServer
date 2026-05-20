@@ -1057,88 +1057,93 @@ export const analyzeWebsitesForAds = async (req, res) => {
         const results = [];
         const updates = [];
 
-        // Check each website for ads
-        for (const lead of leads) {
-            if (!lead.website || !lead.website.trim()) {
-                results.push({
-                    leadId: lead._id,
-                    title: lead.title,
-                    website: lead.website,
-                    status: 'not-available',
-                    error: 'No website URL'
-                });
-                updates.push({
-                    _id: lead._id,
-                    status: 'not-available'
-                });
-                continue;
-            }
-
-            try {
-                // Add protocol if missing
-                let url = lead.website;
-                if (!url.startsWith('http')) {
-                    url = 'https://' + url;
-                }
-
-                // Set timeout for fetch
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 10000);
-
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    },
-                    signal: controller.signal
-                });
-                clearTimeout(timeout);
-
-                if (!response.ok) {
+        // Check each website for ads - parallelize with concurrency limit
+        const CONCURRENCY_LIMIT = 5;
+        for (let i = 0; i < leads.length; i += CONCURRENCY_LIMIT) {
+            const chunk = leads.slice(i, i + CONCURRENCY_LIMIT);
+            
+            await Promise.all(chunk.map(async (lead) => {
+                if (!lead.website || !lead.website.trim()) {
                     results.push({
                         leadId: lead._id,
                         title: lead.title,
                         website: lead.website,
                         status: 'not-available',
-                        error: `HTTP ${response.status}`
+                        error: 'No website URL'
                     });
                     updates.push({
                         _id: lead._id,
                         status: 'not-available'
                     });
-                    continue;
+                    return;
                 }
 
-                const html = await response.text();
-                const hasAds = detectAdsInHtml(html);
-                const adStatus = hasAds ? 'running' : 'not-running';
+                try {
+                    // Add protocol if missing
+                    let url = lead.website;
+                    if (!url.startsWith('http')) {
+                        url = 'https://' + url;
+                    }
 
-                results.push({
-                    leadId: lead._id,
-                    title: lead.title,
-                    website: lead.website,
-                    status: adStatus,
-                    error: null
-                });
+                    // Set timeout for fetch
+                    const controller = new AbortController();
+                    const timeout = setTimeout(() => controller.abort(), 10000);
 
-                updates.push({
-                    _id: lead._id,
-                    status: adStatus
-                });
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        },
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeout);
 
-            } catch (error) {
-                results.push({
-                    leadId: lead._id,
-                    title: lead.title,
-                    website: lead.website,
-                    status: 'not-available',
-                    error: error.message
-                });
-                updates.push({
-                    _id: lead._id,
-                    status: 'not-available'
-                });
-            }
+                    if (!response.ok) {
+                        results.push({
+                            leadId: lead._id,
+                            title: lead.title,
+                            website: lead.website,
+                            status: 'not-available',
+                            error: `HTTP ${response.status}`
+                        });
+                        updates.push({
+                            _id: lead._id,
+                            status: 'not-available'
+                        });
+                        return;
+                    }
+
+                    const html = await response.text();
+                    const hasAds = detectAdsInHtml(html);
+                    const adStatus = hasAds ? 'running' : 'not-running';
+
+                    results.push({
+                        leadId: lead._id,
+                        title: lead.title,
+                        website: lead.website,
+                        status: adStatus,
+                        error: null
+                    });
+
+                    updates.push({
+                        _id: lead._id,
+                        status: adStatus
+                    });
+
+                } catch (error) {
+                    results.push({
+                        leadId: lead._id,
+                        title: lead.title,
+                        website: lead.website,
+                        status: 'not-available',
+                        error: error.message
+                    });
+                    updates.push({
+                        _id: lead._id,
+                        status: 'not-available'
+                    });
+                }
+            }));
         }
 
         // Bulk update all leads with ad status using bulkWrite for reliability
@@ -1147,7 +1152,7 @@ export const analyzeWebsitesForAds = async (req, res) => {
             if (updates.length > 0) {
                 const bulkOps = updates.map(u => ({
                     updateOne: {
-                        filter: { _id: mongoose.Types.ObjectId(u._id) },
+                        filter: { _id: u._id },
                         update: { $set: { addsRunning: u.status, adDetectedAt: new Date() } },
                         upsert: false
                     }
