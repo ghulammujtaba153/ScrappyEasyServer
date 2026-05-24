@@ -1,5 +1,5 @@
 import MailMessage from "../models/mailMessageSchema.js";
-import { sendMail } from "../utils/mailer.js";
+import { sendMail, resend } from "../utils/mailer.js";
 
 // Helper to extract clean email address from formats like "John Doe <john@example.com>"
 const extractEmail = (str) => {
@@ -155,7 +155,7 @@ export const receiveInboundWebhook = async (req, res) => {
       emailData = req.body.data;
     }
 
-    const { from, to, subject, text, html } = emailData;
+    const { from, to, subject, text: bodyText, html: bodyHtml, email_id: emailId } = emailData;
 
     if (!from) {
       return res.status(400).json({
@@ -165,6 +165,25 @@ export const receiveInboundWebhook = async (req, res) => {
     }
 
     const contactEmail = extractEmail(from);
+    let text = bodyText || "";
+    let html = bodyHtml || "";
+
+    // If an email_id is present, fetch the full email body (text and HTML) from Resend
+    if (emailId) {
+      try {
+        console.log(`🔍 Fetching full email content from Resend for ID: ${emailId}`);
+        const { data: resendEmail, error: resendError } = await resend.emails.get(emailId);
+        if (resendEmail) {
+          text = resendEmail.text || text;
+          html = resendEmail.html || html;
+          console.log(`✅ Successfully fetched email content for ID: ${emailId}`);
+        } else if (resendError) {
+          console.error("⚠️ Failed to fetch email details from Resend API:", resendError);
+        }
+      } catch (err) {
+        console.error("⚠️ Error while calling Resend GET email:", err.message);
+      }
+    }
 
     // Save inbound message to DB
     const inboundMessage = await MailMessage.create({

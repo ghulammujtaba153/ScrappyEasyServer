@@ -11,7 +11,7 @@ if (!process.env.RESEND_EMAIL_FROM) {
   console.error("❌ CRITICAL: RESEND_EMAIL_FROM is missing in environment variables!");
 }
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+export const resend = new Resend(process.env.RESEND_API_KEY);
 
 /**
  * Send email using Resend
