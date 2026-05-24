@@ -4,7 +4,7 @@ import {
   getMailThreadMessages,
   sendMailMessage,
   receiveInboundWebhook,
-  simulateInboundMail
+  migrateThreadIds
 } from "../controller/mailMessageController.js";
 import authMiddleware from "../middleware/authMiddleware.js";
 
@@ -15,8 +15,7 @@ router.post("/webhook", receiveInboundWebhook);
 
 // Protected endpoints for the admin panel
 router.get("/threads", authMiddleware, getMailThreads);
-router.get("/thread/:email", authMiddleware, getMailThreadMessages);
+router.get("/thread/:threadId", authMiddleware, getMailThreadMessages);
 router.post("/send", authMiddleware, sendMailMessage);
-router.post("/simulate-inbound", authMiddleware, simulateInboundMail);
 
 export default router;

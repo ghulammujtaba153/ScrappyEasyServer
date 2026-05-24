@@ -34,6 +34,15 @@ const mailMessageSchema = new mongoose.Schema(
       required: true,
       lowercase: true,
       trim: true,
+    },
+    // Thread grouping key: normalized subject + contact email
+    // e.g. "welcome to map harvest::john@example.com"
+    threadId: {
+      type: String,
+      required: false,
+      default: "",
+      lowercase: true,
+      trim: true,
       index: true,
     },
     resendId: {
@@ -56,8 +65,9 @@ const mailMessageSchema = new mongoose.Schema(
   }
 );
 
-// Create compound index for fast chronological sorting inside a thread
-mailMessageSchema.index({ contactEmail: 1, createdAt: 1 });
+// Compound index for fast thread lookups
+mailMessageSchema.index({ threadId: 1, createdAt: 1 });
+mailMessageSchema.index({ contactEmail: 1 });
 
 const MailMessage = mongoose.model("MailMessage", mailMessageSchema);
 

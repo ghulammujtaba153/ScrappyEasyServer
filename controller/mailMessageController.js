@@ -1,6 +1,9 @@
 import MailMessage from "../models/mailMessageSchema.js";
 import { sendMail, resend } from "../utils/mailer.js";
 
+// Your sending address — used to filter out self-sent webhook echoes
+const OWN_EMAIL = (process.env.RESEND_EMAIL_FROM || "grow@mapharvest.live").toLowerCase();
+
 // Helper to extract clean email address from formats like "John Doe <john@example.com>"
 const extractEmail = (str) => {
   if (!str) return "";
@@ -9,7 +12,52 @@ const extractEmail = (str) => {
 };
 
 /**
- * Get all conversation threads (grouped by contactEmail)
+ * Normalize a subject line by stripping Re:/Fwd:/FW: prefixes and trimming.
+ * "Re: Re: Fwd: Welcome to Map Harvest" → "welcome to map harvest"
+ */
+const normalizeSubject = (subject) => {
+  if (!subject) return "(no subject)";
+  return subject
+    .replace(/^(re:\s*|fwd?:\s*)+/i, "")
+    .trim()
+    .toLowerCase();
+};
+
+/**
+ * Generate a threadId from subject + contactEmail.
+ * All messages in the same conversation (regardless of Re: prefixes) get the same threadId.
+ */
+const makeThreadId = (subject, contactEmail) => {
+  return `${normalizeSubject(subject)}::${contactEmail.toLowerCase()}`;
+};
+
+/**
+ * Strip Gmail-style quoted reply chain from plain text.
+ * Extracts only the fresh content above the "On ... wrote:" marker.
+ */
+const stripQuotedText = (text) => {
+  if (!text) return "";
+  const marker = text.search(/\r?\nOn\s.+wrote:\s*\r?\n/i);
+  if (marker > 0) {
+    return text.substring(0, marker).trim();
+  }
+  return text.trim();
+};
+
+/**
+ * Strip Gmail-style quoted reply chain from HTML.
+ * Removes gmail_quote_container and gmail_quote blocks.
+ */
+const stripQuotedHtml = (html) => {
+  if (!html) return "";
+  let cleaned = html.replace(/<div[^>]*class="[^"]*gmail_quote_container[^"]*"[^>]*>[\s\S]*$/i, "");
+  cleaned = cleaned.replace(/<div[^>]*class="[^"]*gmail_quote[^"]*"[^>]*>[\s\S]*$/i, "");
+  cleaned = cleaned.replace(/(<br\s*\/?\s*>)+\s*$/i, "");
+  return cleaned.trim();
+};
+
+/**
+ * Get all conversation threads (grouped by threadId)
  */
 export const getMailThreads = async (req, res) => {
   try {
@@ -17,8 +65,10 @@ export const getMailThreads = async (req, res) => {
       { $sort: { createdAt: -1 } },
       {
         $group: {
-          _id: "$contactEmail",
+          _id: "$threadId",
           latestMessage: { $first: "$$ROOT" },
+          contactEmail: { $first: "$contactEmail" },
+          messageCount: { $sum: 1 },
           unreadCount: {
             $sum: {
               $cond: [
@@ -52,27 +102,25 @@ export const getMailThreads = async (req, res) => {
 };
 
 /**
- * Get all messages for a specific conversation thread
+ * Get all messages for a specific thread by threadId
  */
 export const getMailThreadMessages = async (req, res) => {
   try {
-    const { email } = req.params;
-    if (!email) {
+    const { threadId } = req.params;
+    if (!threadId) {
       return res.status(400).json({
         success: false,
-        message: "Email parameter is required"
+        message: "threadId parameter is required"
       });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
-
-    // Fetch messages
-    const messages = await MailMessage.find({ contactEmail: cleanEmail })
+    // Fetch messages in chronological order
+    const messages = await MailMessage.find({ threadId })
       .sort({ createdAt: 1 });
 
-    // Mark inbound messages as read
+    // Mark unread inbound messages as read
     await MailMessage.updateMany(
-      { contactEmail: cleanEmail, direction: "inbound", isRead: false },
+      { threadId, direction: "inbound", isRead: false },
       { $set: { isRead: true } }
     );
 
@@ -94,7 +142,7 @@ export const getMailThreadMessages = async (req, res) => {
  */
 export const sendMailMessage = async (req, res) => {
   try {
-    const { to, subject, text, html } = req.body;
+    const { to, subject, text, html, threadId: existingThreadId } = req.body;
 
     if (!to || !subject || (!text && !html)) {
       return res.status(400).json({
@@ -104,6 +152,7 @@ export const sendMailMessage = async (req, res) => {
     }
 
     const cleanEmail = extractEmail(to);
+    const threadId = existingThreadId || makeThreadId(subject, cleanEmail);
 
     // Send email using existing Resend utility
     const resendResult = await sendMail({
@@ -122,6 +171,7 @@ export const sendMailMessage = async (req, res) => {
       html,
       direction: "outbound",
       contactEmail: cleanEmail,
+      threadId,
       resendId: resendResult?.id || null,
       status: "sent",
       isRead: true
@@ -143,13 +193,26 @@ export const sendMailMessage = async (req, res) => {
 };
 
 /**
- * Public webhook endpoint for inbound emails from Resend Inbound Email product
+ * Public webhook endpoint for inbound emails from Resend
+ * Only processes "email.received" events.
+ * Ignores self-sent emails.
+ * Strips quoted Gmail chains.
  */
 export const receiveInboundWebhook = async (req, res) => {
   try {
     console.log("📬 Inbound email webhook received:", JSON.stringify(req.body, null, 2));
 
-    // Handle nested Resend event wrapper payloads (type: email.received)
+    // ─── 1. Only process "email.received" events ───
+    const eventType = req.body?.type;
+    if (eventType && eventType !== "email.received") {
+      console.log(`⏭️ Ignoring non-received webhook event: ${eventType}`);
+      return res.status(200).json({
+        success: true,
+        message: `Ignored event type: ${eventType}`
+      });
+    }
+
+    // Handle nested Resend event wrapper payloads
     let emailData = req.body;
     if (req.body && req.body.data && typeof req.body.data === 'object') {
       emailData = req.body.data;
@@ -164,11 +227,21 @@ export const receiveInboundWebhook = async (req, res) => {
       });
     }
 
-    const contactEmail = extractEmail(from);
+    // ─── 2. Ignore emails from our own sending address ───
+    const senderEmail = extractEmail(from);
+    if (senderEmail === extractEmail(OWN_EMAIL)) {
+      console.log(`⏭️ Ignoring self-sent email from: ${from}`);
+      return res.status(200).json({
+        success: true,
+        message: "Ignored self-sent email echo"
+      });
+    }
+
+    const contactEmail = senderEmail;
     let text = bodyText || "";
     let html = bodyHtml || "";
 
-    // If an email_id is present, fetch the full email body (text and HTML) from Resend
+    // Fetch full email body from Resend if email_id is present
     if (emailId) {
       try {
         console.log(`🔍 Fetching full email content from Resend for ID: ${emailId}`);
@@ -185,15 +258,23 @@ export const receiveInboundWebhook = async (req, res) => {
       }
     }
 
+    // ─── 3. Strip quoted Gmail reply chains ───
+    const cleanText = stripQuotedText(text);
+    const cleanHtml = stripQuotedHtml(html);
+
+    // ─── 4. Generate threadId from normalized subject + contact ───
+    const threadId = makeThreadId(subject, contactEmail);
+
     // Save inbound message to DB
     const inboundMessage = await MailMessage.create({
       from,
       to: Array.isArray(to) ? to : [to || ""],
       subject: subject || "(No Subject)",
-      text,
-      html,
+      text: cleanText,
+      html: cleanHtml,
       direction: "inbound",
       contactEmail,
+      threadId,
       status: "received",
       isRead: false
     });
@@ -214,42 +295,29 @@ export const receiveInboundWebhook = async (req, res) => {
 };
 
 /**
- * Developer helper endpoint to simulate receiving an inbound email
+ * Migration helper: backfill threadId for old documents that don't have it.
+ * Call once via /mails/migrate-threads
  */
-export const simulateInboundMail = async (req, res) => {
+export const migrateThreadIds = async (req, res) => {
   try {
-    const { from, subject, text, html } = req.body;
+    const docs = await MailMessage.find({ $or: [{ threadId: { $exists: false } }, { threadId: "" }] });
+    let updated = 0;
 
-    if (!from || !subject || (!text && !html)) {
-      return res.status(400).json({
-        success: false,
-        message: "from, subject, and either text or html content are required to simulate"
-      });
+    for (const doc of docs) {
+      const threadId = makeThreadId(doc.subject, doc.contactEmail);
+      doc.threadId = threadId;
+      await doc.save();
+      updated++;
     }
 
-    const contactEmail = extractEmail(from);
-
-    const simulatedMessage = await MailMessage.create({
-      from,
-      to: [process.env.RESEND_EMAIL_FROM || "grow@mapharvest.live"],
-      subject,
-      text,
-      html,
-      direction: "inbound",
-      contactEmail,
-      status: "received",
-      isRead: false
-    });
-
-    res.status(201).json({
+    res.status(200).json({
       success: true,
-      message: "Simulated inbound email created successfully",
-      data: simulatedMessage
+      message: `Migration complete. Updated ${updated} documents.`
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to simulate inbound email",
+      message: "Migration failed",
       error: error.message
     });
   }
