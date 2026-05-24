@@ -172,7 +172,7 @@ export const receiveInboundWebhook = async (req, res) => {
     if (emailId) {
       try {
         console.log(`🔍 Fetching full email content from Resend for ID: ${emailId}`);
-        const { data: resendEmail, error: resendError } = await resend.emails.get(emailId);
+        const { data: resendEmail, error: resendError } = await resend.emails.receiving.get(emailId);
         if (resendEmail) {
           text = resendEmail.text || text;
           html = resendEmail.html || html;
