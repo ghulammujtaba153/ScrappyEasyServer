@@ -147,8 +147,15 @@ export const sendMailMessage = async (req, res) => {
  */
 export const receiveInboundWebhook = async (req, res) => {
   try {
-    console.log("📬 Inbound email webhook received:", req.body);
-    const { from, to, subject, text, html } = req.body;
+    console.log("📬 Inbound email webhook received:", JSON.stringify(req.body, null, 2));
+
+    // Handle nested Resend event wrapper payloads (type: email.received)
+    let emailData = req.body;
+    if (req.body && req.body.data && typeof req.body.data === 'object') {
+      emailData = req.body.data;
+    }
+
+    const { from, to, subject, text, html } = emailData;
 
     if (!from) {
       return res.status(400).json({
