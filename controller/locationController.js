@@ -332,11 +332,12 @@ export const find_nearby_cities = async (req, res) => {
 };
 
 /**
- * Smart recommendation engine that handles both city and state queries.
- * If a state is detected, it suggests cities within that state that the user hasn't scraped much data for.
- * 
+ * Smart recommendation engine that handles city, state, country, and compound queries.
+ * Handles full display_name strings like "Tampa, Florida, United States".
+ * Sorts neighboring areas by population (not distance) to surface high-value missed areas.
+ *
  * Query Parameters:
- * - q: The search query (e.g., "Texas" or "Austin")
+ * - q: The search query (e.g., "Tampa", "Florida", "Tampa, Florida, United States")
  * - userId: The user ID to check against existing scraped data
  * - limit: Max number of results (default 10)
  */
@@ -348,103 +349,144 @@ export const get_smart_recommendations = async (req, res) => {
             return res.status(400).json({ success: false, message: "Query parameter 'q' is required" });
         }
 
-        const queryLower = q.toLowerCase().trim();
+        const mkDisplayName = (c) => [c.city, c.admin_name, c.country].filter(Boolean).join(", ");
 
-        // 1. Check if the query matches a State (admin_name)
-        const isState = citiesData.some(c => c.admin_name && c.admin_name.toLowerCase() === queryLower);
+        const withScrapeCounts = async (cities) => {
+            if (!userId) return cities.map(c => ({ ...c, scrapeCount: 0 }));
+            const userData = await Data.find({ userId }).select('searchString');
+            const scrapedQueries = userData.map(d => d.searchString.toLowerCase());
+            return cities.map(c => ({
+                ...c,
+                scrapeCount: scrapedQueries.filter(sq => sq.includes(c.city.toLowerCase())).length
+            }));
+        };
 
-        let targetCities = [];
+        const smartSort = (cities) => cities.sort((a, b) => {
+            if (a.scrapeCount !== b.scrapeCount) return a.scrapeCount - b.scrapeCount;
+            return (b.population || 0) - (a.population || 0);
+        });
 
-        if (isState) {
-            // Get all cities in this state
-            targetCities = citiesData.filter(c => c.admin_name && c.admin_name.toLowerCase() === queryLower);
+        const buildNeighbors = (cities) => cities.map(c => ({
+            city: c.city,
+            lat: c.lat,
+            lng: c.lng,
+            admin_name: c.admin_name,
+            country: c.country,
+            population: c.population,
+            distance_km: c.distance_km,
+            scraped_before: (c.scrapeCount || 0) > 0,
+            display_name: mkDisplayName(c)
+        }));
 
-            // If user is logged in, prioritize cities they HAVEN'T explored
-            if (userId) {
-                const userData = await Data.find({ userId }).select('searchString');
-                const scrapedQueries = userData.map(d => d.searchString.toLowerCase());
+        const parts = q.split(",").map(p => p.trim().toLowerCase()).filter(Boolean);
+        const p0 = parts[0] || "";   
+        const p1 = parts[1] || null; 
+        const p2 = parts[2] || null; 
 
-                // Calculate a "score" for each city
-                targetCities = targetCities.map(city => {
-                    // Check how many times this city name appears in user's search history
-                    const scrapeCount = scrapedQueries.filter(sq => sq.includes(city.city.toLowerCase())).length;
-                    return { ...city, scrapeCount };
-                });
+        // ── Find potential matches for City, State, and Country ──────────
+        
+        // 1. City Match
+        let cityMatch = citiesData.find(c => {
+            const nameMatch = c.city?.toLowerCase() === p0 || c.city_ascii?.toLowerCase() === p0;
+            if (!nameMatch) return false;
+            if (p1 && c.admin_name && !c.admin_name.toLowerCase().includes(p1)) return false;
+            if (p2 && c.country && !c.country.toLowerCase().includes(p2)) return false;
+            return true;
+        });
+        if (!cityMatch) {
+            cityMatch = citiesData.find(c => c.city?.toLowerCase() === p0 || c.city_ascii?.toLowerCase() === p0);
+        }
 
-                // Sort by scrapeCount ascending (less scraped first), then by population descending
-                targetCities.sort((a, b) => {
-                    if (a.scrapeCount !== b.scrapeCount) {
-                        return a.scrapeCount - b.scrapeCount;
-                    }
-                    return (b.population || 0) - (a.population || 0);
-                });
-            } else {
-                // Not logged in, just sort by population
-                targetCities.sort((a, b) => (b.population || 0) - (a.population || 0));
-            }
+        // 2. State Match
+        let stateCities = citiesData.filter(c => c.admin_name && c.admin_name.toLowerCase() === p0);
+        if (stateCities.length === 0 && p1) {
+            stateCities = citiesData.filter(c => c.admin_name && c.admin_name.toLowerCase() === p1);
+        }
+
+        // 3. Country Match
+        const countryQuery = p2 || p1 || p0;
+        let countryCities = citiesData.filter(c => c.country && c.country.toLowerCase() === countryQuery);
+        if (countryCities.length === 0 && countryQuery !== p0) {
+            countryCities = citiesData.filter(c => c.country && c.country.toLowerCase() === p0);
+        }
+
+        // ── Disambiguate using Population Scores ──────────────────────────
+        let cityScore = cityMatch ? (cityMatch.population || 0) : -1;
+        let stateScore = stateCities.length > 0 ? Math.max(...stateCities.map(c => c.population || 0)) : -1;
+        let countryScore = countryCities.length > 0 ? Math.max(...countryCities.map(c => c.population || 0)) : -1;
+
+        // Determine the winner
+        const maxScore = Math.max(cityScore, stateScore, countryScore);
+
+        if (maxScore === -1) {
+            return res.status(404).json({
+                success: false,
+                message: `No city, state, or country matching "${q}" was found.`
+            });
+        }
+
+        // ── Handle Winner ─────────────────────────────────────────────────
+        // Tie breaker preference: City > State > Country
+        if (cityScore === maxScore) {
+            const lat = parseFloat(cityMatch.lat);
+            const lng = parseFloat(cityMatch.lng);
+
+            let neighbors = citiesData
+                .filter(c => c.id !== cityMatch.id)
+                .map(c => {
+                    const dist = haversineDistance(lat, lng, parseFloat(c.lat), parseFloat(c.lng));
+                    return { ...c, distance_km: Math.round(dist * 100) / 100 };
+                })
+                .filter(c => c.distance_km <= 150);
+
+            neighbors = await withScrapeCounts(neighbors);
+
+            // Priority:
+            // 1. Unexplored (scrapeCount)
+            // 2. Closest distance (neighboring)
+            neighbors.sort((a, b) => {
+                // 1. Unexplored wins
+                if (a.scrapeCount !== b.scrapeCount) return a.scrapeCount - b.scrapeCount;
+                
+                // 2. Closest distance wins
+                return a.distance_km - b.distance_km;
+            });
+
+            return res.status(200).json({
+                success: true,
+                type: "city",
+                city: cityMatch.city,
+                count: Math.min(neighbors.length, parseInt(limit)),
+                neighbors: buildNeighbors(neighbors.slice(0, parseInt(limit)))
+            });
+        } 
+        else if (stateScore === maxScore) {
+            stateCities = await withScrapeCounts(stateCities);
+            smartSort(stateCities);
 
             return res.status(200).json({
                 success: true,
                 type: "state",
                 state: q,
-                count: Math.min(targetCities.length, limit),
-                neighbors: targetCities.slice(0, limit).map(c => ({
-                    city: c.city,
-                    lat: c.lat,
-                    lng: c.lng,
-                    admin_name: c.admin_name,
-                    population: c.population,
-                    scraped_before: c.scrapeCount > 0
-                }))
+                count: Math.min(stateCities.length, parseInt(limit)),
+                neighbors: buildNeighbors(stateCities.slice(0, parseInt(limit)))
             });
-        }
-
-        // 2. If not a state, try to find the city and its neighbors
-        const city = citiesData.find(c =>
-            c.city?.toLowerCase() === queryLower ||
-            c.city_ascii?.toLowerCase() === queryLower
-        );
-
-        if (city) {
-            const lat = parseFloat(city.lat);
-            const lng = parseFloat(city.lng);
-
-            // Get neighbors within 150km, sorted by distance
-            let neighbors = citiesData
-                .filter(c => c.id !== city.id)
-                .map(c => {
-                    const dist = haversineDistance(lat, lng, parseFloat(c.lat), parseFloat(c.lng));
-                    return { ...c, distance_km: Math.round(dist * 100) / 100 };
-                })
-                .filter(c => c.distance_km <= 150)
-                .sort((a, b) => a.distance_km - b.distance_km);
+        } 
+        else {
+            countryCities = await withScrapeCounts(countryCities);
+            smartSort(countryCities);
 
             return res.status(200).json({
                 success: true,
-                type: "city",
-                city: city.city,
-                count: Math.min(neighbors.length, limit),
-                neighbors: neighbors.slice(0, limit).map(c => ({
-                    city: c.city,
-                    lat: c.lat,
-                    lng: c.lng,
-                    admin_name: c.admin_name,
-                    distance_km: c.distance_km
-                }))
+                type: "country",
+                country: q,
+                count: Math.min(countryCities.length, parseInt(limit)),
+                neighbors: buildNeighbors(countryCities.slice(0, parseInt(limit)))
             });
         }
-
-        // 3. Fallback if no direct match found
-        return res.status(404).json({
-            success: false,
-            message: `Neither city nor state matching "${q}" was found.`,
-        });
 
     } catch (error) {
         console.error("Error in get_smart_recommendations:", error);
         res.status(500).json({ success: false, message: "Internal server error", error: error.message });
     }
 };
-
-
-
