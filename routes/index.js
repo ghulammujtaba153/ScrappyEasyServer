@@ -33,6 +33,7 @@ import campaignRouter from "./campaignRoutes.js";
 import teamNotesRouter from "./teamNotesRoutes.js";
 import blogRouter from "./blogRoutes.js";
 import stackAnalysisRouter from "./stackAnalysisRoutes.js";
+import offersRouter from "./offersRoutes.js";
 
 
 const router = express.Router();
@@ -71,6 +72,7 @@ router.use("/campaigns", campaignRouter);
 router.use("/team-notes", teamNotesRouter);
 router.use("/blog", blogRouter);
 router.use("/stack-analysis", stackAnalysisRouter);
+router.use("/offers", offersRouter);
 
 
 export default router;
