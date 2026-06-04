@@ -19,7 +19,9 @@ import {
     updateLead,
     deleteLead,
     updateEmailData,
-    analyzeWebsitesForAds
+    analyzeWebsitesForAds,
+    getOperationDuplicates,
+    removeOperationDuplicates
 } from "../controller/dataController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { resolveTeamContext } from "../middleware/contextMiddleware.js";
@@ -39,6 +41,8 @@ dataRouter.use(resolveTeamContext);
 
 dataRouter.get("/phones/:userId", getPhoneNumbers);
 dataRouter.get("/unique/:userId", getAllUniqueStrings);
+dataRouter.get("/record/:recordId/duplicates", getOperationDuplicates);
+dataRouter.delete("/record/:recordId/duplicates", removeOperationDuplicates);
 dataRouter.get("/record/:recordId", getDataRecordById);
 dataRouter.post("/:id/append", appendDataEntries);
 dataRouter.put("/:id", updateData);

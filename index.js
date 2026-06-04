@@ -17,8 +17,13 @@ import setupSocketIO from "./services/socket.service.js";
 import dns from "node:dns/promises";
 dns.setServers(["1.1.1.1"]); // Restored: Necessary for resolving MongoDB Atlas SRV records in some environments
 
-
 dotenv.config();
+
+// Cold email feature — background workers
+await Promise.all([
+  import('./workers/emailWorker.js'),
+  import('./workers/trackingSyncWorker.js')
+]);
 
 /* ======================
    APP & SERVER SETUP
@@ -59,6 +64,21 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+// Explicit fallback CORS handler for API responses and preflight.
+app.use((req, res, next) => {
+   const origin = req.headers.origin;
+   if (origin && allowedOrigins.includes(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-active-team');
+   }
+   if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+   }
+   next();
+});
 
 // CORS middleware handles preflight requests automatically
 app.use(express.json({
@@ -123,6 +143,22 @@ app.get("/api/health", (req, res) => {
 /* ======================
    ROUTES
 ====================== */
+// Diagnostic middleware: log incoming requests to cold-campaigns endpoints (helps debug CORS/preflight)
+app.use('/api/cold-campaigns', (req, res, next) => {
+   try {
+      console.log(`[CORS-TRACE] ${req.method} ${req.originalUrl} Origin:${req.headers.origin || '-'} Host:${req.headers.host || '-'} Remote:${req.ip || req.connection?.remoteAddress || '-'} Status:${req.socket?.destroyed ? 'socket-destroyed' : 'ok'}`);
+      res.on('finish', () => {
+         try {
+            console.log(`[CORS-TRACE-RESPONSE] ${req.method} ${req.originalUrl} -> ${res.statusCode} Headers: ${JSON.stringify(res.getHeaders())}`);
+         } catch (e) { }
+      });
+   } catch (e) { /* ignore logging errors */ }
+   next();
+});
+
+// CORS middleware is already applied globally earlier via `app.use(cors(corsOptions))`.
+// Remove explicit app.options() to avoid path-to-regexp errors in this environment.
+
 app.use("/api", router);
 
 /* ======================

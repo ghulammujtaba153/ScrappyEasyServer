@@ -34,7 +34,11 @@ import teamNotesRouter from "./teamNotesRoutes.js";
 import blogRouter from "./blogRoutes.js";
 import stackAnalysisRouter from "./stackAnalysisRoutes.js";
 import offersRouter from "./offersRoutes.js";
-
+import trackRouter from "./trackRoutes.js";
+import emailAccountRouter from "./emailAccountRoutes.js";
+import contactRouter from "./contactRoutes.js";
+import coldCampaignRouter from "./coldCampaignRoutes.js";
+import verifyMailRouter from "./verifyMailRoutes.js";
 
 const router = express.Router();
 
@@ -73,6 +77,11 @@ router.use("/team-notes", teamNotesRouter);
 router.use("/blog", blogRouter);
 router.use("/stack-analysis", stackAnalysisRouter);
 router.use("/offers", offersRouter);
-
+router.use("/track", trackRouter);
+router.use("/email-accounts", emailAccountRouter);
+router.use("/contacts", contactRouter);
+router.use("/cold-campaigns", coldCampaignRouter);
+router.use("/verifyMail", verifyMailRouter);
 
 export default router;
+

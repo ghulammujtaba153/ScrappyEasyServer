@@ -1199,3 +1199,129 @@ export const analyzeWebsitesForAds = async (req, res) => {
         });
     }
 };
+
+function normalizeLeadTitle(title) {
+    return (title || '').trim().toLowerCase();
+}
+
+async function assertOperationAccess(req, recordId) {
+    const record = await Data.findById(recordId);
+    if (!record) {
+        return { error: 404, message: 'Record not found' };
+    }
+
+    const userId = req.effectiveUserId;
+    if (userId && record.userId && record.userId.toString() !== userId.toString()) {
+        return { error: 403, message: 'Access denied' };
+    }
+
+    return { record };
+}
+
+function buildDuplicateGroups(leads) {
+    const groups = new Map();
+
+    for (const lead of leads) {
+        const key = normalizeLeadTitle(lead.title);
+        if (!key) continue;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(lead);
+    }
+
+    const duplicateGroups = [];
+    for (const group of groups.values()) {
+        if (group.length <= 1) continue;
+
+        const sorted = [...group].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        const keep = sorted[0];
+        const remove = sorted.slice(1);
+
+        duplicateGroups.push({
+            title: keep.title,
+            count: sorted.length,
+            keepId: keep._id,
+            removeIds: remove.map((lead) => lead._id),
+            items: sorted.map((lead) => ({
+                _id: lead._id,
+                title: lead.title,
+                phone: lead.phone || '',
+                address: lead.address || '',
+                city: lead.city || '',
+                website: lead.website || '',
+                createdAt: lead.createdAt,
+                willKeep: lead._id.toString() === keep._id.toString(),
+            })),
+        });
+    }
+
+    duplicateGroups.sort((a, b) => b.count - a.count);
+    return duplicateGroups;
+}
+
+export const getOperationDuplicates = async (req, res) => {
+    try {
+        const { recordId } = req.params;
+        const access = await assertOperationAccess(req, recordId);
+        if (access.error) {
+            return res.status(access.error).json({ success: false, message: access.message });
+        }
+
+        const leads = await LeadData.find({ operationId: recordId }).sort({ createdAt: 1 }).lean();
+        const duplicateGroups = buildDuplicateGroups(leads);
+        const totalToRemove = duplicateGroups.reduce((sum, group) => sum + group.removeIds.length, 0);
+
+        res.json({
+            success: true,
+            data: {
+                duplicateGroups,
+                totalDuplicates: totalToRemove,
+                totalGroups: duplicateGroups.length,
+            },
+        });
+    } catch (error) {
+        console.error('Error fetching operation duplicates:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+export const removeOperationDuplicates = async (req, res) => {
+    try {
+        const { recordId } = req.params;
+        const access = await assertOperationAccess(req, recordId);
+        if (access.error) {
+            return res.status(access.error).json({ success: false, message: access.message });
+        }
+
+        const leads = await LeadData.find({ operationId: recordId }).sort({ createdAt: 1 }).lean();
+        const duplicateGroups = buildDuplicateGroups(leads);
+        const idsToRemove = duplicateGroups.flatMap((group) => group.removeIds);
+
+        if (idsToRemove.length === 0) {
+            return res.json({
+                success: true,
+                message: 'No duplicate leads found in this operation',
+                removedCount: 0,
+                duplicateGroups: [],
+            });
+        }
+
+        const deleteResult = await LeadData.deleteMany({
+            _id: { $in: idsToRemove },
+            operationId: recordId,
+        });
+
+        await Data.findByIdAndUpdate(recordId, {
+            $pull: { leads: { $in: idsToRemove } },
+        });
+
+        res.json({
+            success: true,
+            message: `Removed ${deleteResult.deletedCount} duplicate lead(s) from this operation`,
+            removedCount: deleteResult.deletedCount,
+            duplicateGroups,
+        });
+    } catch (error) {
+        console.error('Error removing operation duplicates:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
