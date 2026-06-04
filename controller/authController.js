@@ -9,6 +9,7 @@ import { getWelcomeTemplate, getWelcomeText } from "../utils/templates/welcome.j
 import { getInternationalWelcomeTemplate, getInternationalWelcomeText } from "../utils/templates/internationalWelcome.js";
 import { getInternationalPaymentTemplate, getInternationalPaymentText } from "../utils/templates/internationalPayment.js";
 import { sendMetaCAPIEvent } from "../utils/metaPixel.js";
+import { resolvePaymentScreenshot } from "../utils/paymentScreenshot.js";
 
 
 export const register = async (req, res) => {
@@ -37,12 +38,18 @@ export const register = async (req, res) => {
             planExpiry = date;
         }
 
-        // Explicitly set status to under_review for new manual registrations
-        // Handle screenshot if uploaded
+        const paymentScreenshot = resolvePaymentScreenshot(req);
+        const isLocal = !["intl", "international"].includes(
+            String(req.body.userType || "local").toLowerCase()
+        );
+        if (req.body.planId && isLocal && !paymentScreenshot) {
+            return res.status(400).json({ message: "Payment screenshot is required" });
+        }
+
         const userData = {
             ...req.body,
             status: "under_review",
-            paymentScreenshot: req.file ? req.file.filename : null,
+            paymentScreenshot,
             planExpiry,
             planName: req.body.planName,
             planAmount: req.body.planAmount,

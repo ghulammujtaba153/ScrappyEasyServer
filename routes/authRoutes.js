@@ -1,5 +1,4 @@
 import express from "express";
-import multer from "multer";
 import { 
     login, register, updateUser, verifyToken, resetPassword, 
     inviteResetPassword, inviteUser, getAllUsers, deleteUser, 
@@ -7,20 +6,9 @@ import {
     sendInternationalPaymentLink 
 } from "../controller/authController.js";
 
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, 'public/screenshots')
-    },
-    filename: function (req, file, cb) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
-        cb(null, file.fieldname + '-' + uniqueSuffix + '-' + file.originalname)
-    }
-});
-
-const upload = multer({ storage: storage });
 const authRouter = express.Router();
 
-authRouter.post("/register", upload.single("screenshot"), register);
+authRouter.post("/register", register);
 authRouter.post("/login", login);
 authRouter.put("/update/:id", updateUser);
 authRouter.get("/verifyToken", verifyToken);

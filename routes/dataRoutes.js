@@ -16,8 +16,10 @@ import {
     bulkUpdateWhatsAppStatus,
     updateLeadStatus,
     importCSVData,
+    importLeadsBatch,
     updateLead,
     deleteLead,
+    bulkDeleteLeads,
     updateEmailData,
     analyzeWebsitesForAds,
     getOperationDuplicates,
@@ -39,6 +41,8 @@ dataRouter.post("/", createData);
 dataRouter.use(authMiddleware);
 dataRouter.use(resolveTeamContext);
 
+dataRouter.post("/import-leads-batch", importLeadsBatch);
+
 dataRouter.get("/phones/:userId", getPhoneNumbers);
 dataRouter.get("/unique/:userId", getAllUniqueStrings);
 dataRouter.get("/record/:recordId/duplicates", getOperationDuplicates);
@@ -52,6 +56,7 @@ dataRouter.post("/update-city", updateCityData);
 dataRouter.post("/update-screenshots", updateScreenshotData);
 dataRouter.post("/toggle-favorite", toggleFavorite);
 dataRouter.post("/update-whatsapp-status", updateWhatsAppStatus);
+dataRouter.post("/leads/bulk-delete", bulkDeleteLeads);
 dataRouter.post("/update-lead-status", updateLeadStatus);
 dataRouter.put("/lead/:leadId", updateLead);
 dataRouter.delete("/lead/:leadId", deleteLead);

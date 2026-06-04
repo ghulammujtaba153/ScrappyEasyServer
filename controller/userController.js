@@ -1,4 +1,5 @@
 import User from "../models/userSchema.js";
+import { resolvePaymentScreenshot } from "../utils/paymentScreenshot.js";
 
 export const updateTwilioConfig = async (req, res) => {
     try {
@@ -107,11 +108,12 @@ export const getUserById = async (req, res) => {
         res.status(500).json({ success: false, message: "Internal server error" });
     }
 };
+
 export const requestSubscription = async (req, res) => {
     try {
         const { userId } = req.params;
         const { planId, planName, planAmount } = req.body;
-        const screenshot = req.file ? req.file.filename : null;
+        const screenshot = resolvePaymentScreenshot(req);
 
         if (!screenshot) {
             return res.status(400).json({ success: false, message: "Payment screenshot is required" });

@@ -114,6 +114,116 @@ export const importCSVData = async (req, res) => {
     }
 };
 
+function normalizeImportLead(item) {
+    return {
+        title: (item.title || '').trim(),
+        rating: (item.rating ?? '').toString().trim(),
+        reviews: (item.reviews ?? '').toString().trim(),
+        phone: (item.phone ?? '').toString().trim(),
+        address: (item.address ?? '').toString().trim(),
+        city: (item.city ?? '').toString().trim(),
+        website: (item.website ?? '').toString().trim(),
+        googleMapsLink: (item.googleMapsLink ?? '').toString().trim(),
+    };
+}
+
+async function importLeadsIntoOperation({ userId, operationId, searchString, leads }) {
+    const normalized = leads.map(normalizeImportLead).filter((item) => item.title);
+    if (normalized.length === 0) {
+        return { imported: 0, skipped: leads.length, operation: null };
+    }
+
+    let operation;
+    let existingTitles = new Set();
+
+    if (operationId) {
+        operation = await Data.findById(operationId).populate('leads');
+        if (!operation) {
+            throw new Error('Specified operation not found');
+        }
+        existingTitles = new Set((operation.leads || []).map((lead) => lead.title));
+    } else {
+        operation = await Data.create({
+            userId,
+            searchString: searchString || 'CSV Import',
+            leads: [],
+        });
+    }
+
+    const uniqueLeads = Array.from(
+        new Map(
+            normalized
+                .filter((item) => !existingTitles.has(item.title))
+                .map((item) => [item.title, item])
+        ).values()
+    );
+
+    if (uniqueLeads.length === 0) {
+        return { imported: 0, skipped: normalized.length, operation };
+    }
+
+    const leadDocs = await Promise.all(
+        uniqueLeads.map((item) =>
+            LeadData.create({
+                userId,
+                operationId: operation._id,
+                title: item.title,
+                rating: item.rating || '',
+                reviews: item.reviews || '',
+                phone: item.phone || '',
+                address: item.address || '',
+                city: item.city || '',
+                website: item.website || '',
+                googleMapsLink: item.googleMapsLink || '',
+                metadata: item,
+            })
+        )
+    );
+
+    const newLeadIds = leadDocs.map((doc) => doc._id);
+    operation.leads.push(...newLeadIds);
+    await operation.save();
+
+    return {
+        imported: leadDocs.length,
+        skipped: normalized.length - uniqueLeads.length,
+        operation,
+    };
+}
+
+export const importLeadsBatch = async (req, res) => {
+    try {
+        const userId = req.effectiveUserId || req.body.userId;
+        const { operationId, searchString, leads } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({ success: false, message: 'userId is required' });
+        }
+        if (!Array.isArray(leads) || leads.length === 0) {
+            return res.status(400).json({ success: false, message: 'leads array is required' });
+        }
+
+        const result = await importLeadsIntoOperation({
+            userId,
+            operationId,
+            searchString,
+            leads,
+        });
+
+        res.status(200).json({
+            success: true,
+            message: result.imported > 0 ? 'Batch imported successfully' : 'No new unique leads in this batch',
+            imported: result.imported,
+            skipped: result.skipped,
+            operationId: result.operation?._id,
+            data: result.operation,
+        });
+    } catch (error) {
+        console.error('importLeadsBatch error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 
 // Update individual lead data
 export const updateLead = async (req, res) => {
@@ -175,6 +285,71 @@ export const deleteLead = async (req, res) => {
         });
     } catch (error) {
         console.error("Error deleting lead:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// Delete multiple leads by ID array
+export const bulkDeleteLeads = async (req, res) => {
+    try {
+        const { leadIds } = req.body;
+
+        if (!Array.isArray(leadIds) || leadIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "leadIds array is required"
+            });
+        }
+
+        const validIds = leadIds
+            .map((id) => String(id))
+            .filter((id) => mongoose.Types.ObjectId.isValid(id));
+
+        if (validIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "No valid lead IDs provided"
+            });
+        }
+
+        const leads = await LeadData.find({ _id: { $in: validIds } });
+
+        if (leads.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "No leads found for the given IDs"
+            });
+        }
+
+        const leadsByOperation = new Map();
+        for (const lead of leads) {
+            if (!lead.operationId) continue;
+            const opKey = lead.operationId.toString();
+            if (!leadsByOperation.has(opKey)) {
+                leadsByOperation.set(opKey, []);
+            }
+            leadsByOperation.get(opKey).push(lead._id);
+        }
+
+        for (const [operationId, ids] of leadsByOperation.entries()) {
+            await Data.findByIdAndUpdate(operationId, {
+                $pull: { leads: { $in: ids } }
+            });
+        }
+
+        const deleteResult = await LeadData.deleteMany({ _id: { $in: leads.map((l) => l._id) } });
+
+        res.status(200).json({
+            success: true,
+            message: `Deleted ${deleteResult.deletedCount} lead(s) successfully`,
+            deletedCount: deleteResult.deletedCount,
+            leadIds: leads.map((l) => l._id)
+        });
+    } catch (error) {
+        console.error("Error bulk deleting leads:", error);
         res.status(500).json({
             success: false,
             message: error.message
