@@ -6,7 +6,7 @@ import { sendNotification } from "./notificationController.js";
 import { getTeamInviteTemplate, getTeamInviteText } from "../utils/templates/teamInvite.js";
 import { sendMetaCAPIEvent } from "../utils/metaPixel.js";
 
-const MAX_MEMBERS = 2;
+const MAX_MEMBERS = 1;
 
 // Helper to handle member invitations/additions
 const processTeamMembers = async (emails, ownerId, teamName, req, oldMemberIds = []) => {
@@ -75,8 +75,18 @@ export const createTeam = async (req, res) => {
     try {
         const { name, owner, memberEmails = [] } = req.body;
 
+        const existingMembership = await Team.findOne({
+            members: req.userId,
+            owner: { $ne: req.userId },
+        });
+        if (existingMembership) {
+            return res.status(403).json({
+                message: "Invited members cannot create their own team.",
+            });
+        }
+
         if (memberEmails.length > MAX_MEMBERS) {
-            return res.status(400).json({ message: `A maximum of ${MAX_MEMBERS} sub-accounts is allowed per team.` });
+            return res.status(400).json({ message: `You can invite only ${MAX_MEMBERS} member at a time.` });
         }
 
         // Process members (create/notify/invite)
@@ -154,7 +164,7 @@ export const updateTeam = async (req, res) => {
         }
         
         if (memberEmails.length > MAX_MEMBERS) {
-            return res.status(400).json({ message: `A maximum of ${MAX_MEMBERS} sub-accounts is allowed per team.` });
+            return res.status(400).json({ message: `You can invite only ${MAX_MEMBERS} member at a time.` });
         }
         
         // Logic for updates: we can simplify by processing all emails again

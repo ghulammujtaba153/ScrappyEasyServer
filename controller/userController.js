@@ -1,5 +1,59 @@
 import User from "../models/userSchema.js";
+import Team from "../models/teamSchema.js";
 import { resolvePaymentScreenshot } from "../utils/paymentScreenshot.js";
+
+const hasActiveSubscription = (user) =>
+    Boolean(user && user.status === "active" && user.planId);
+
+export const getMyAccessStatus = async (req, res) => {
+    try {
+        const user = await User.findById(req.userId).select("-password");
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        if (hasActiveSubscription(user)) {
+            return res.status(200).json({
+                success: true,
+                isAuthorized: true,
+                canCreateTeam: true,
+                isTeamMember: false,
+                type: "subscription",
+                subscription: user,
+            });
+        }
+
+        const memberTeams = await Team.find({ members: req.userId }).populate("owner");
+        const coveredTeam = memberTeams.find((team) => {
+            const ownerId = team.owner?._id?.toString() || team.owner?.toString();
+            return ownerId && ownerId !== req.userId.toString() && hasActiveSubscription(team.owner);
+        });
+
+        if (coveredTeam) {
+            return res.status(200).json({
+                success: true,
+                isAuthorized: true,
+                canCreateTeam: false,
+                isTeamMember: true,
+                type: "team_subscription",
+                subscription: coveredTeam.owner,
+                teamId: coveredTeam._id,
+                teamName: coveredTeam.name,
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            isAuthorized: false,
+            canCreateTeam: false,
+            isTeamMember: memberTeams.length > 0,
+            type: "none",
+        });
+    } catch (error) {
+        console.error("Error resolving access status:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
 
 export const updateTwilioConfig = async (req, res) => {
     try {

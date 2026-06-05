@@ -350,8 +350,61 @@ export const getAllUsers = async (req, res) => {
 
         const total = await User.countDocuments(query);
 
+        const userIds = users.map((u) => u._id);
+        const teams = userIds.length
+            ? await Team.find({
+                $or: [{ owner: { $in: userIds } }, { members: { $in: userIds } }],
+            })
+                .populate("owner", "name email")
+                .populate("members", "name email")
+                .lean()
+            : [];
+
+        const enrichedUsers = users.map((user) => {
+            const userId = user._id.toString();
+            const hasOwnSubscription = user.status === "active" && Boolean(user.planId);
+
+            const ownedTeam = teams.find(
+                (t) => t.owner && t.owner._id.toString() === userId
+            );
+            const memberTeam = teams.find(
+                (t) =>
+                    t.owner &&
+                    t.owner._id.toString() !== userId &&
+                    (t.members || []).some((m) => m._id.toString() === userId)
+            );
+
+            let accountType = "none";
+            if (hasOwnSubscription) {
+                accountType = ownedTeam ? "subscriber_owner" : "subscriber";
+            } else if (memberTeam) {
+                accountType = "invited_member";
+            }
+
+            const invitedMembers = (ownedTeam?.members || []).map((m) => ({
+                _id: m._id,
+                name: m.name,
+                email: m.email,
+            }));
+
+            return {
+                ...user.toObject(),
+                accountType,
+                isSubscriber: hasOwnSubscription,
+                invitedBy: memberTeam?.owner
+                    ? {
+                        _id: memberTeam.owner._id,
+                        name: memberTeam.owner.name,
+                        email: memberTeam.owner.email,
+                    }
+                    : null,
+                teamName: memberTeam?.name || ownedTeam?.name || null,
+                invitedMembers,
+            };
+        });
+
         res.status(200).json({
-            users,
+            users: enrichedUsers,
             totalPages: Math.ceil(total / limit),
             currentPage: page,
             totalUsers: total

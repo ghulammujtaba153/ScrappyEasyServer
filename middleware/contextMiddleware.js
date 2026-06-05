@@ -19,7 +19,10 @@ export const resolveTeamContext = async (req, res, next) => {
 
         // Check if user is owner or member
         const isOwner = team.owner?.toString() === req.userId?.toString();
-        const isMember = team.members?.some(m => m.user?.toString() === req.userId?.toString());
+        const isMember = team.members?.some((m) => {
+            const memberId = m._id || m;
+            return memberId?.toString() === req.userId?.toString();
+        });
 
         if (!isOwner && !isMember) {
             return res.status(403).json({ success: false, message: 'Not authorized for this team' });
