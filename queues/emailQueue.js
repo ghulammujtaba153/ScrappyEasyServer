@@ -33,10 +33,6 @@ const queue = new Bull('email-sending', {
     if (type === 'subscriber') return redisSubscriber;
     return new Redis(redisUrl, redisOptions);
   },
-  limiter: {
-    max: 1,
-    duration: 90000
-  },
   defaultJobOptions: {
     removeOnComplete: true,
     removeOnFail: 100,

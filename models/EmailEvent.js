@@ -12,6 +12,7 @@ const emailEventSchema = new mongoose.Schema({
   clickedAt:   { type: Date },
   clickedUrl:  { type: String },
   failReason:  { type: String },
+  scheduledFor: { type: Date },
 }, { timestamps: true });
 
 // Compound indexes for fast scheduler and stat lookups
