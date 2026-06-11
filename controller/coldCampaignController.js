@@ -1,7 +1,8 @@
 import ColdCampaign from '../models/ColdCampaign.js';
 import CampaignContact from '../models/CampaignContact.js';
 import EmailEvent from '../models/EmailEvent.js';
-import emailQueue from '../queues/emailQueue.js';
+import emailQueue, { isEmailQueueAvailable } from '../queues/emailQueue.js';
+import { isRedisDegraded } from '../utils/redisFactory.js';
 import sanitizeHtml from 'sanitize-html';
 import { getNextValidTime } from '../utils/scheduleTime.js';
 import { reserveAccountSlot } from '../utils/accountScheduleSlots.js';
@@ -40,6 +41,9 @@ function assignAccountId(contactId, accountIds) {
 }
 
 async function addEventJob(eventId, delayMs = 0) {
+  if (!isEmailQueueAvailable()) {
+    throw new Error('Email queue unavailable — Redis request limit reached. Try again later.');
+  }
   await emailQueue.add({ eventId: eventId.toString() }, {
     jobId: eventId.toString(),
     delay: delayMs,
@@ -158,6 +162,10 @@ async function buildPendingEnqueueList(campaign, { staggerMs, respectSchedule })
 }
 
 async function bulkInsertAndQueue(pending) {
+  if (!isEmailQueueAvailable()) {
+    throw new Error('Email queue unavailable — Redis request limit reached. Try again later.');
+  }
+
   let queuedCount = 0;
 
   for (let i = 0; i < pending.length; i += EMAIL_ENQUEUE_BATCH_SIZE) {
@@ -278,6 +286,12 @@ export async function updateCampaign(req, res, next) {
 
 export async function launchCampaign(req, res, next) {
   try {
+    if (isRedisDegraded()) {
+      return res.status(503).json({
+        message: 'Email queue is temporarily unavailable (Redis limit reached). Please try again later.',
+      });
+    }
+
     const campaign = await ColdCampaign.findOne({ _id: req.params.id, userId: req.user._id });
     if (!campaign) return res.status(404).json({ message: 'Not found' });
     if (campaign.status === 'active') return res.status(400).json({ message: 'Already active' });
@@ -347,6 +361,12 @@ export async function sendNowCampaign(req, res, next) {
   console.log(`[sendNowCampaign] Received request to send now for campaign ${campaignId} by user ${req.user._id}`);
 
   try {
+    if (isRedisDegraded()) {
+      return res.status(503).json({
+        message: 'Email queue is temporarily unavailable (Redis limit reached). Please try again later.',
+      });
+    }
+
     const campaign = await ColdCampaign.findOne({ _id: req.params.id, userId: req.user._id });
     if (!campaign) return res.status(404).json({ message: 'Not found' });
 

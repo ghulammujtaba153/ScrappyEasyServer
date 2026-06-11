@@ -12,21 +12,9 @@ import {
   EMAIL_ACCOUNT_RATE_LIMIT_MS,
   EMAIL_JOB_OPTS,
 } from '../config/emailQueueConfig.js';
-import Redis from 'ioredis';
+import { createRedisClient, isRedisDegraded } from '../utils/redisFactory.js';
 
-const redisOptions = {
-  maxRetriesPerRequest: null,
-  lazyConnect: false,
-  connectTimeout: 30000,
-  retryStrategy: (times) => Math.min(times * 100, 3000),
-};
-
-if (process.env.REDIS_URL && (process.env.REDIS_URL.startsWith('rediss://') || process.env.REDIS_URL.includes('upstash.io'))) {
-  redisOptions.tls = { rejectUnauthorized: false };
-}
-
-const redis = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', redisOptions);
-redis.on('error', (err) => console.error('[emailWorker] Redis error:', err.message));
+const redis = createRedisClient('emailWorker');
 
 async function getCachedModel(model, id, prefix) {
   const key = `cache:${prefix}:${id}`;
@@ -84,6 +72,9 @@ async function releaseAccountRateLimit(accountId) {
 }
 
 emailQueue.process(EMAIL_WORKER_CONCURRENCY, async (job) => {
+  if (isRedisDegraded()) {
+    throw new Error('Redis unavailable (quota exceeded) — job will retry later');
+  }
   const { eventId } = job.data;
 
   const event = await EmailEvent.findById(eventId);

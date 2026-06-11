@@ -1,19 +1,7 @@
-import Redis from 'ioredis';
+import { createRedisClient } from './redisFactory.js';
 import { EMAIL_ACCOUNT_RATE_LIMIT_MS } from '../config/emailQueueConfig.js';
 
-const redisOptions = {
-  maxRetriesPerRequest: null,
-  lazyConnect: false,
-  connectTimeout: 30000,
-  retryStrategy: (times) => Math.min(times * 100, 3000),
-};
-
-if (process.env.REDIS_URL && (process.env.REDIS_URL.startsWith('rediss://') || process.env.REDIS_URL.includes('upstash.io'))) {
-  redisOptions.tls = { rejectUnauthorized: false };
-}
-
-const redis = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', redisOptions);
-redis.on('error', (err) => console.error('[accountScheduleSlots] Redis error:', err.message));
+const redis = createRedisClient('accountScheduleSlots');
 
 const SLOT_KEY_PREFIX = 'account:nextSlot:';
 

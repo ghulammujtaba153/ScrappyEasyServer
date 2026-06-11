@@ -7,28 +7,9 @@
  * Uses ioredis (already installed) instead of the 'redis' npm package.
  */
 
-import Redis from 'ioredis';
+import { createRedisClient, isRedisDegraded } from '../utils/redisFactory.js';
 
-// 1. Production-ready Upstash configuration options
-const redisOptions = {
-  lazyConnect: false,
-  maxRetriesPerRequest: null, // CRITICAL: Set to null to prevent crash loops when Upstash cycles connections
-  connectTimeout: 30000, // 30s timeout for connection establishment
-  retryStrategy: (times) => Math.min(times * 100, 3000),
-  enableOfflineQueue: true,
-};
-
-// Automatically append TLS configuration for Upstash or rediss:// URLs.
-if (process.env.REDIS_URL && (process.env.REDIS_URL.startsWith('rediss://') || process.env.REDIS_URL.includes('upstash.io'))) {
-  redisOptions.tls = {
-    rejectUnauthorized: false // Prevents SSL handshake failures on cloud servers
-  };
-}
-
-const client = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', redisOptions);
-
-client.on('error', (err) => console.error('[trackingBuffer] Redis error:', err.message));
-client.on('connect', () => console.log('[trackingBuffer] Redis connected.'));
+const client = createRedisClient('trackingBuffer');
 
 const OPEN_QUEUE_KEY = 'tracking:opens';
 const CLICK_QUEUE_KEY = 'tracking:clicks';
@@ -39,7 +20,7 @@ const CLICK_QUEUE_KEY = 'tracking:clicks';
 export async function bufferOpen(eid) {
   try {
     // Check if client is ready before pushing to prevent hanging operations
-    if (client.status === 'ready') {
+    if (!isRedisDegraded() && client.status === 'ready') {
       await client.rpush(OPEN_QUEUE_KEY, JSON.stringify({ eid, ts: Date.now() }));
     } else {
       console.warn('[trackingBuffer] Redis not ready, drop-prevented or bypassing to fallback.');
@@ -54,7 +35,7 @@ export async function bufferOpen(eid) {
  */
 export async function bufferClick(eid, url) {
   try {
-    if (client.status === 'ready') {
+    if (!isRedisDegraded() && client.status === 'ready') {
       await client.rpush(CLICK_QUEUE_KEY, JSON.stringify({ eid, url, ts: Date.now() }));
     } else {
       console.warn('[trackingBuffer] Redis not ready, dropping click action event context safely.');
@@ -71,7 +52,7 @@ export async function bufferClick(eid, url) {
  */
 export async function drainQueue(key, count = 200) {
   const items = [];
-  if (client.status !== 'ready') {
+  if (isRedisDegraded() || client.status !== 'ready') {
     console.warn(`[trackingBuffer] Cannot drain queue ${key} — Redis connection status: ${client.status}`);
     return items;
   }

@@ -15,15 +15,36 @@ import cron from 'node-cron';
 import setupSocketIO from "./services/socket.service.js";
 // import { setupMediaStream } from "./utils/mediaStream.js"; // Disabled: using text-based voice approach
 import dns from "node:dns/promises";
+import { isRedisQuotaError, isRedisDegraded } from "./utils/redisFactory.js";
 dns.setServers(["1.1.1.1"]); // Restored: Necessary for resolving MongoDB Atlas SRV records in some environments
 
 dotenv.config();
 
-// Cold email feature — background workers
-await Promise.all([
-  import('./workers/emailWorker.js'),
-  import('./workers/trackingSyncWorker.js')
-]);
+// Prevent Upstash quota/auth errors from crashing the whole process on Render.
+process.on("uncaughtException", (err) => {
+  if (isRedisQuotaError(err)) {
+    console.error("[process] Redis quota error (non-fatal):", err.message);
+    return;
+  }
+  console.error("[process] Fatal uncaught exception:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  if (isRedisQuotaError(reason)) {
+    console.error("[process] Redis quota rejection (non-fatal):", reason?.message || reason);
+    return;
+  }
+  console.error("[process] Unhandled rejection:", reason);
+});
+
+// Cold email workers — load in background; failures must not block the API.
+import("./workers/emailWorker.js").catch((err) => {
+  console.error("[startup] emailWorker failed to load (non-fatal):", err.message);
+});
+import("./workers/trackingSyncWorker.js").catch((err) => {
+  console.error("[startup] trackingSyncWorker failed to load (non-fatal):", err.message);
+});
 
 /* ======================
    APP & SERVER SETUP
@@ -137,6 +158,7 @@ app.get("/api/health", (req, res) => {
     service: "API",
     status: "Healthy",
     uptime: process.uptime(),
+    redisDegraded: isRedisDegraded(),
   });
 });
 
