@@ -2,6 +2,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
+    "backup:db": "node scripts/backupDatabase.js",
     "postinstall": "npx playwright install chromium"
   },
   "dependencies": {

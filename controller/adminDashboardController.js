@@ -3,6 +3,15 @@ import Data from "../models/dataSchema.js";
 import LeadData from "../models/leadDataSchema.js";
 import QualifiedLeads from "../models/qualifiedLeadsSchema.js";
 import Team from "../models/teamSchema.js";
+import {
+    hasSubscriptionFilter,
+    hasPlanAmountFilter,
+    activeSubscriptionFilter,
+    underReviewSubscriptionFilter,
+    pendingPaymentFilter,
+    expiredFilter,
+    planAmountSumExpr,
+} from "../utils/subscriptionFilters.js";
 
 // Get dashboard overview stats
 export const getAdminDashboardStats = async (req, res) => {
@@ -26,26 +35,24 @@ export const getAdminDashboardStats = async (req, res) => {
             ? Math.round(((newUsersThisMonth - usersLastMonth) / usersLastMonth) * 100)
             : 100;
 
-        // Total Revenue (Sum of planAmount from all active users)
+        // Total Revenue (active users with planAmount on profile, non-expired)
         const revenueResult = await User.aggregate([
-            { $match: { status: 'active', planAmount: { $exists: true, $ne: "" } } },
-            { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
+            { $match: { ...activeSubscriptionFilter(), ...hasPlanAmountFilter() } },
+            { $group: { _id: null, total: planAmountSumExpr } }
         ]);
         const totalRevenue = revenueResult[0]?.total || 0;
 
-
-        // Revenue this month (Users who upgraded/registered this month)
+        // Revenue this month (users who registered/upgraded this month)
         const revenueThisMonth = await User.aggregate([
-            { $match: { createdAt: { $gte: startOfMonth }, status: 'active', planAmount: { $exists: true, $ne: "" } } },
-            { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
+            { $match: { createdAt: { $gte: startOfMonth }, ...activeSubscriptionFilter(), ...hasPlanAmountFilter() } },
+            { $group: { _id: null, total: planAmountSumExpr } }
         ]);
         const monthlyRevenue = revenueThisMonth[0]?.total || 0;
 
-
         // Revenue last month for comparison
         const revenueLastMonth = await User.aggregate([
-            { $match: { createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, status: 'active', planAmount: { $exists: true, $ne: "" } } },
-            { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
+            { $match: { createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, ...activeSubscriptionFilter(), ...hasPlanAmountFilter() } },
+            { $group: { _id: null, total: planAmountSumExpr } }
         ]);
         const lastMonthRevenue = revenueLastMonth[0]?.total || 0;
 
@@ -53,26 +60,24 @@ export const getAdminDashboardStats = async (req, res) => {
             ? Math.round(((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100)
             : 100;
 
-        // Active Subscriptions
-        const activeSubscriptions = await User.countDocuments({ status: 'active', planId: { $exists: true } });
+        // Active subscriptions (plan fields on user profile, non-expired)
+        const activeSubscriptions = await User.countDocuments(activeSubscriptionFilter());
 
-        // Subscriptions last month
         const subscriptionsLastMonth = await User.countDocuments({
             createdAt: { $gte: startOfLastMonth, $lt: startOfMonth },
-            status: 'active',
-            planId: { $exists: true }
+            ...activeSubscriptionFilter(),
         });
         const subscriptionsThisMonth = await User.countDocuments({
             createdAt: { $gte: startOfMonth },
-            status: 'active',
-            planId: { $exists: true }
+            ...activeSubscriptionFilter(),
         });
         const subscriptionGrowthPercent = subscriptionsLastMonth > 0
             ? Math.round(((subscriptionsThisMonth - subscriptionsLastMonth) / subscriptionsLastMonth) * 100)
             : (subscriptionsThisMonth > 0 ? 100 : 0);
 
-        // Active Users (users with status active and a plan)
-        const activeUserCount = await User.countDocuments({ status: 'active', planId: { $exists: true } });
+        // Subscribers with plan data on profile
+        const totalSubscribers = await User.countDocuments(hasSubscriptionFilter());
+        const underReviewCount = await User.countDocuments(underReviewSubscriptionFilter());
 
 
         res.status(200).json({
@@ -83,7 +88,8 @@ export const getAdminDashboardStats = async (req, res) => {
                 revenueGrowthPercent,
                 activeSubscriptions,
                 subscriptionGrowthPercent,
-                activeUserCount
+                totalSubscribers,
+                underReviewCount,
             }
         });
     } catch (error) {
@@ -130,8 +136,8 @@ export const getRevenueData = async (req, res) => {
             const monthName = startDate.toLocaleString('default', { month: 'short' });
 
             const revenueInMonth = await User.aggregate([
-                { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true, $ne: "" } } },
-                { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
+                { $match: { createdAt: { $gte: startDate, $lte: endDate }, ...activeSubscriptionFilter(now), ...hasPlanAmountFilter() } },
+                { $group: { _id: null, total: planAmountSumExpr } }
             ]);
 
             revenue.push({
@@ -150,7 +156,7 @@ export const getRevenueData = async (req, res) => {
 export const getSubscriptionDistribution = async (req, res) => {
     try {
         const distributionResult = await User.aggregate([
-            { $match: { status: 'active', planId: { $exists: true } } },
+            { $match: activeSubscriptionFilter() },
             { $group: { _id: "$planName", value: { $sum: 1 } } },
             { $project: { name: "$_id", value: 1, _id: 0 } }
         ]);
@@ -218,6 +224,7 @@ export const getAdminDashboardData = async (req, res) => {
             totalUsers, newUsersThisMonth, usersLastMonth,
             revenueResult, revenueThisMonthResult, revenueLastMonthResult,
             activeSubscriptions, subscriptionsThisMonth, subscriptionsLastMonth,
+            totalSubscribers, underReviewCount, expiredCount, pendingPaymentCount,
             totalSearches, searchesThisMonth, searchesLastMonth,
             totalRecords, recordsThisMonth, recordsLastMonth,
             totalEmailsDiscovered, totalSocialsDiscovered, verifiedWhatsApp, interestedLeads,
@@ -228,24 +235,28 @@ export const getAdminDashboardData = async (req, res) => {
             User.countDocuments({ createdAt: { $gte: startOfMonth } }),
             User.countDocuments({ createdAt: { $gte: startOfLastMonth, $lt: startOfMonth } }),
             
-            // 2. Revenue Stats
+            // 2. Revenue Stats (from user.planAmount on active, non-expired profiles)
             User.aggregate([
-                { $match: { status: 'active', planAmount: { $exists: true, $ne: "" }, $or: [{ planExpiry: { $exists: false } }, { planExpiry: { $gte: now } }] } },
-                { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
+                { $match: { ...activeSubscriptionFilter(now), ...hasPlanAmountFilter() } },
+                { $group: { _id: null, total: planAmountSumExpr } }
             ]),
             User.aggregate([
-                { $match: { createdAt: { $gte: startOfMonth }, status: 'active', planAmount: { $exists: true, $ne: "" } } },
-                { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
+                { $match: { createdAt: { $gte: startOfMonth }, ...activeSubscriptionFilter(now), ...hasPlanAmountFilter() } },
+                { $group: { _id: null, total: planAmountSumExpr } }
             ]),
             User.aggregate([
-                { $match: { createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, status: 'active', planAmount: { $exists: true, $ne: "" } } },
-                { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
+                { $match: { createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, ...activeSubscriptionFilter(now), ...hasPlanAmountFilter() } },
+                { $group: { _id: null, total: planAmountSumExpr } }
             ]),
 
-            // 3. Subscription Stats
-            User.countDocuments({ status: 'active', planId: { $exists: true, $ne: "" }, $or: [{ planExpiry: { $exists: false } }, { planExpiry: { $gte: now } }] }),
-            User.countDocuments({ createdAt: { $gte: startOfMonth }, status: 'active', planId: { $exists: true, $ne: "" } }),
-            User.countDocuments({ createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, status: 'active', planId: { $exists: true, $ne: "" } }),
+            // 3. Subscription Stats (planName/planAmount/planId on user schema)
+            User.countDocuments(activeSubscriptionFilter(now)),
+            User.countDocuments({ createdAt: { $gte: startOfMonth }, ...activeSubscriptionFilter(now) }),
+            User.countDocuments({ createdAt: { $gte: startOfLastMonth, $lt: startOfMonth }, ...activeSubscriptionFilter(now) }),
+            User.countDocuments(hasSubscriptionFilter()),
+            User.countDocuments(underReviewSubscriptionFilter()),
+            User.countDocuments({ $and: [hasSubscriptionFilter(), expiredFilter(now)] }),
+            User.countDocuments(pendingPaymentFilter()),
 
             // 4. Operation/Search Stats
             Data.countDocuments(),
@@ -269,9 +280,9 @@ export const getAdminDashboardData = async (req, res) => {
             LeadData.countDocuments({ whatsappStatus: 'verified' }),
             LeadData.countDocuments({ status: 'interested' }),
 
-            // 7. Subscription Distribution
+            // 7. Plan distribution (by user.planName)
             User.aggregate([
-                { $match: { status: 'active', planId: { $exists: true, $ne: "" }, $or: [{ planExpiry: { $exists: false } }, { planExpiry: { $gte: now } }] } },
+                { $match: activeSubscriptionFilter(now) },
                 { $group: { _id: "$planName", value: { $sum: 1 } } },
                 { $project: { name: "$_id", value: 1, _id: 0 } }
             ])
@@ -301,8 +312,8 @@ export const getAdminDashboardData = async (req, res) => {
                 User.countDocuments({ createdAt: { $lte: endDate } }),
                 User.countDocuments({ createdAt: { $gte: startDate, $lte: endDate } }),
                 User.aggregate([
-                    { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true, $ne: "" } } },
-                    { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
+                    { $match: { createdAt: { $gte: startDate, $lte: endDate }, ...activeSubscriptionFilter(now), ...hasPlanAmountFilter() } },
+                    { $group: { _id: null, total: planAmountSumExpr } }
                 ]),
                 Data.countDocuments({ createdAt: { $gte: startDate, $lte: endDate } }),
                 LeadData.countDocuments({ createdAt: { $gte: startDate, $lte: endDate } })
@@ -340,6 +351,10 @@ export const getAdminDashboardData = async (req, res) => {
                 revenueGrowthPercent,
                 activeSubscriptions,
                 subscriptionGrowthPercent,
+                totalSubscribers,
+                underReviewCount,
+                expiredCount,
+                pendingPaymentCount,
                 totalSearches,
                 searchGrowthPercent,
                 totalRecords,
@@ -383,7 +398,7 @@ export const getUserDetailsStats = async (req, res) => {
         const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
         // User's subscription info (since history is deleted, we use current)
-        const activeSubscription = user.status === 'active' && user.planId ? {
+        const activeSubscription = user.status === 'active' && (user.planName || user.planId || user.planAmount) ? {
             packageName: user.planName,
             amount: user.planAmount,
             status: user.status,
@@ -471,7 +486,7 @@ export const getUserDetailsStats = async (req, res) => {
         }));
 
         // Subscription status distribution
-        const subscriptionDistribution = user.planId ? [{
+        const subscriptionDistribution = (user.planName || user.planId || user.planAmount) ? [{
             name: user.status === 'active' ? 'Active' : 'Pending',
             value: 1,
             color: user.status === 'active' ? '#10B981' : '#F59E0B'
@@ -523,7 +538,7 @@ export const getUserDetailsStats = async (req, res) => {
                 createdAt: user.createdAt
             },
             stats: {
-                totalSubscriptions: user.planId ? 1 : 0,
+                totalSubscriptions: (user.planName || user.planId || user.planAmount) ? 1 : 0,
                 totalSpent,
                 totalSearches,
                 searchesThisMonth,
@@ -552,12 +567,12 @@ export const getUserDetailsStats = async (req, res) => {
     }
 };
 
-// Get list of all users with subscriptions
+// Get list of all users with subscription data on their profile
 export const getAllSubscriptions = async (req, res) => {
     try {
-        const subscriptions = await User.find({ planId: { $exists: true, $ne: "" } })
-            .select('name email planName planAmount planExpiry status createdAt paymentScreenshot')
-            .sort({ createdAt: -1 });
+        const subscriptions = await User.find(hasSubscriptionFilter())
+            .select('name email planName planAmount planExpiry planId status paymentScreenshot userType createdAt updatedAt')
+            .sort({ updatedAt: -1 });
 
         res.status(200).json({ success: true, subscriptions });
     } catch (error) {
@@ -565,22 +580,22 @@ export const getAllSubscriptions = async (req, res) => {
     }
 };
 
-// Get detailed subscription analytics
+// Get detailed subscription analytics (derived from user schema plan fields)
 export const getSubscriptionAnalytics = async (req, res) => {
     try {
         const now = new Date();
         const months = 6;
         const revenueTrend = [];
         
-        // 1. Revenue Trend (Last 6 months)
+        // 1. Revenue Trend (Last 6 months — new active subscribers by createdAt)
         for (let i = months - 1; i >= 0; i--) {
             const startDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const endDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
             const monthName = startDate.toLocaleString('default', { month: 'short' });
 
             const revenueInMonth = await User.aggregate([
-                { $match: { createdAt: { $gte: startDate, $lte: endDate }, status: 'active', planAmount: { $exists: true, $ne: "" } } },
-                { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
+                { $match: { createdAt: { $gte: startDate, $lte: endDate }, ...activeSubscriptionFilter(now), ...hasPlanAmountFilter() } },
+                { $group: { _id: null, total: planAmountSumExpr } }
             ]);
 
             revenueTrend.push({
@@ -589,38 +604,70 @@ export const getSubscriptionAnalytics = async (req, res) => {
             });
         }
 
-        // 2. Status Distribution
+        // 2. Status distribution (users with plan data on profile)
         const distributionResult = await User.aggregate([
-            { $match: { planId: { $exists: true, $ne: "" } } },
+            { $match: hasSubscriptionFilter() },
             { $group: { _id: "$status", value: { $sum: 1 } } },
             { $project: { name: "$_id", value: 1, _id: 0 } }
         ]);
 
         const statusDistribution = distributionResult.map(item => ({
-            name: item.name.charAt(0).toUpperCase() + item.name.slice(1).replace('_', ' '),
+            name: item.name.charAt(0).toUpperCase() + item.name.slice(1).replace(/_/g, ' '),
             value: item.value
         }));
 
-        // 3. Overall Stats
-        const totalUsersWithPlan = await User.countDocuments({ planId: { $exists: true, $ne: "" } });
-        const activeSubscriptions = await User.countDocuments({ status: 'active', planId: { $exists: true, $ne: "" } });
-        const underReviewCount = await User.countDocuments({ status: 'under_review', planId: { $exists: true, $ne: "" } });
-        
-        const totalRevenueResult = await User.aggregate([
-            { $match: { status: 'active', planAmount: { $exists: true, $ne: "" } } },
-            { $group: { _id: null, total: { $sum: { $convert: { input: { $trim: { input: "$planAmount", chars: " $" } }, to: "double", onError: 0, onNull: 0 } } } } }
+        // 3. Plan distribution (by user.planName)
+        const planDistributionResult = await User.aggregate([
+            { $match: hasSubscriptionFilter() },
+            { $group: { _id: "$planName", value: { $sum: 1 } } },
+            { $project: { name: "$_id", value: 1, _id: 0 } }
         ]);
+
+        const planDistribution = planDistributionResult.map(item => ({
+            name: item.name || 'Unnamed plan',
+            value: item.value
+        }));
+
+        // 4. Overall stats from user profile fields
+        const [
+            totalUsersWithPlan,
+            activeSubscriptions,
+            underReviewCount,
+            expiredCount,
+            pendingPaymentCount,
+            blockedCount,
+            invitedCount,
+            totalRevenueResult,
+        ] = await Promise.all([
+            User.countDocuments(hasSubscriptionFilter()),
+            User.countDocuments(activeSubscriptionFilter(now)),
+            User.countDocuments(underReviewSubscriptionFilter()),
+            User.countDocuments({ $and: [hasSubscriptionFilter(), expiredFilter(now)] }),
+            User.countDocuments(pendingPaymentFilter()),
+            User.countDocuments({ $and: [{ status: 'blocked' }, hasSubscriptionFilter()] }),
+            User.countDocuments({ $and: [{ status: 'invited' }, hasSubscriptionFilter()] }),
+            User.aggregate([
+                { $match: { ...activeSubscriptionFilter(now), ...hasPlanAmountFilter() } },
+                { $group: { _id: null, total: planAmountSumExpr } }
+            ]),
+        ]);
+
         const totalRevenue = totalRevenueResult[0]?.total || 0;
 
         res.status(200).json({
             success: true,
             revenueTrend,
             statusDistribution,
+            planDistribution,
             stats: {
                 totalUsersWithPlan,
                 activeSubscriptions,
                 underReviewCount,
-                totalRevenue
+                expiredCount,
+                pendingPaymentCount,
+                blockedCount,
+                invitedCount,
+                totalRevenue,
             }
         });
     } catch (error) {

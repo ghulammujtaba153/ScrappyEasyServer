@@ -2,7 +2,11 @@
 
 .env
 node_modules
+backups/
 # WhatsApp session data (contains sensitive auth credentials)
 whatsapp-session/
 whatsapp_auth/
 whatsapp_sessions/
+
+scripts/
+backups/
